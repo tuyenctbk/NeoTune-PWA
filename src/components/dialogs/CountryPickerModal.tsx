@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { X, Search, Globe, Radio } from 'lucide-react';
 import { CountryInfo } from '../../types';
+import { useTranslation } from '../../services/i18n';
 
 interface CountryPickerModalProps {
   isOpen: boolean;
@@ -17,6 +18,7 @@ export const CountryPickerModal: React.FC<CountryPickerModalProps> = ({
   selectedCountry,
   onSelectCountry,
 }) => {
+  const { t } = useTranslation();
   const [searchQuery, setSearchQuery] = useState('');
 
   const filteredCountries = useMemo(() => {
@@ -37,8 +39,8 @@ export const CountryPickerModal: React.FC<CountryPickerModalProps> = ({
               <Globe className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base sm:text-lg font-bold text-[var(--text-primary)]">Select Country / Territory</h3>
-              <p className="text-xs text-[var(--text-muted)]">Browse global stations by geographical origin</p>
+              <h3 className="text-base sm:text-lg font-bold text-[var(--text-primary)]">{t('select_country_region', 'Select Country / Territory')}</h3>
+              <p className="text-xs text-[var(--text-muted)]">{t('select_country_desc', 'Browse global stations by geographical origin')}</p>
             </div>
           </div>
           <button
@@ -55,7 +57,7 @@ export const CountryPickerModal: React.FC<CountryPickerModalProps> = ({
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
           <input
             type="text"
-            placeholder="Search 200+ countries..."
+            placeholder={t('search_countries', 'Search countries...')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-primary)]"
@@ -77,9 +79,9 @@ export const CountryPickerModal: React.FC<CountryPickerModalProps> = ({
           >
             <div className="flex items-center gap-3">
               <span className="text-xl">🌐</span>
-              <span className="font-semibold text-sm">All Countries (Global Feed)</span>
+              <span className="font-semibold text-sm">{t('all_countries', 'All Countries (Global Feed)')}</span>
             </div>
-            <span className="text-xs text-[var(--text-muted)]">50,000+ stations</span>
+            <span className="text-xs text-[var(--text-muted)]">50,000+ {t('nav_radio', 'stations')}</span>
           </button>
         </div>
 
@@ -116,7 +118,7 @@ export const CountryPickerModal: React.FC<CountryPickerModalProps> = ({
           })}
           {filteredCountries.length === 0 && (
             <div className="text-center py-10 text-xs text-[var(--text-muted)]">
-              No matching countries found for "{searchQuery}"
+              {t('no_matching_countries', 'No matching countries found for')} "{searchQuery}"
             </div>
           )}
         </div>
@@ -124,9 +126,9 @@ export const CountryPickerModal: React.FC<CountryPickerModalProps> = ({
         <div className="mt-4 pt-3 border-t border-[var(--border-color)] flex justify-end">
           <button
             onClick={onClose}
-            className="px-5 py-2 rounded-xl bg-white/10 text-white font-medium text-xs hover:bg-white/20 transition-colors"
+            className="px-5 py-2 rounded-xl bg-white/10 text-white font-medium text-xs hover:bg-white/20 transition-colors cursor-pointer"
           >
-            Close
+            {t('close', 'Close')}
           </button>
         </div>
       </div>

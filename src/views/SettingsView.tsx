@@ -1354,7 +1354,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <Search className="w-3.5 h-3.5 text-[var(--text-muted)] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="text"
-                placeholder="Filter 50 languages..."
+                placeholder={t('search_languages', 'Search 60 languages...')}
                 value={langSearch}
                 onChange={(e) => setLangSearch(e.target.value)}
                 className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-xs text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-emerald-400"

@@ -922,7 +922,7 @@ export const RadioView: React.FC<RadioViewProps> = ({
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="text-sm font-bold uppercase tracking-wider text-[var(--text-primary)]">
-                  Recommended
+                  {t('recommended', 'Recommended')}
                 </h3>
                 <span className="px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-[10px] font-bold">
                   AI
@@ -995,7 +995,7 @@ export const RadioView: React.FC<RadioViewProps> = ({
               <div>
                 <div className="flex items-center gap-2">
                   <h3 className="text-sm font-bold uppercase tracking-wider text-[var(--text-primary)]">
-                    Queued for Later ({queuedStations.length})
+                    {t('queued_for_later', 'Queued for Later')} ({queuedStations.length})
                   </h3>
                   {currentUser ? (
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold">
@@ -1056,7 +1056,7 @@ export const RadioView: React.FC<RadioViewProps> = ({
               <div>
                 <div className="flex items-center gap-2">
                   <h3 className="text-sm font-bold uppercase tracking-wider text-[var(--text-primary)]">
-                    Recently Added Stations ({recentlyAddedStations.length})
+                    {t('recently_added_stations', 'Recently Added Stations')} ({recentlyAddedStations.length})
                   </h3>
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold">
                     Custom / Imported
@@ -1109,7 +1109,7 @@ export const RadioView: React.FC<RadioViewProps> = ({
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="text-base font-bold tracking-tight text-[var(--text-primary)]">
-                  Trending
+                  {t('trending', 'Trending')}
                 </h3>
                 <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-gradient-to-r from-amber-500/20 to-rose-500/20 text-amber-300 border border-amber-500/30 text-[10px] font-extrabold uppercase tracking-wider">
                   <TrendingUp className="w-3 h-3" />
@@ -1509,7 +1509,7 @@ export const RadioView: React.FC<RadioViewProps> = ({
                   className="px-6 py-3 rounded-2xl bg-[var(--surface-main)] hover:bg-white/10 border border-[var(--border-color)] hover:border-[var(--accent-primary)] text-xs sm:text-sm font-bold text-[var(--text-primary)] shadow-lg hover:shadow-[var(--accent-primary)]/20 transition-all cursor-pointer inline-flex items-center gap-2"
                 >
                   <RefreshCw className={`w-4 h-4 text-[var(--accent-primary)] ${isLoadingMore ? 'animate-spin' : ''}`} />
-                  <span>{isLoadingMore ? 'Fetching More Stations...' : `Load More Stations (${sortedStations.length} shown)`}</span>
+                  <span>{isLoadingMore ? t('buffering', 'Loading...') : `${t('load_more', 'Load More Stations')} (${sortedStations.length})`}</span>
                 </button>
               </div>
             )}

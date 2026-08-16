@@ -324,7 +324,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                           type="text"
                           value={langFilter}
                           onChange={(e) => setLangFilter(e.target.value)}
-                          placeholder="Search languages..."
+                          placeholder={t('search_languages', 'Search languages...')}
                           className="w-full px-2.5 py-1.5 bg-black/40 border border-white/10 rounded-xl text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-[var(--accent-primary)]"
                           onClick={(e) => e.stopPropagation()}
                         />
@@ -557,7 +557,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 )}
                 {!isCollapsed && (
                   <span className="truncate text-xs font-bold">
-                    {currentUser ? currentUser.displayName?.split(' ')[0] || 'Account' : 'Sync Profile'}
+                    {currentUser ? currentUser.displayName?.split(' ')[0] || t('account', 'Account') : t('sync_profile', 'Sync Profile')}
                   </span>
                 )}
               </div>
@@ -617,7 +617,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                         type="text"
                         value={langFilter}
                         onChange={(e) => setLangFilter(e.target.value)}
-                        placeholder="Search languages..."
+                        placeholder={t('search_languages', 'Search languages...')}
                         className="w-full px-2.5 py-1.5 bg-black/40 border border-white/10 rounded-xl text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-[var(--accent-primary)]"
                         onClick={(e) => e.stopPropagation()}
                       />

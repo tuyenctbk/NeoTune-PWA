@@ -9,6 +9,8 @@ import { ScrollToTopButton } from '../components/ScrollToTopButton';
 import { NowPlayingStudioFragment } from '../components/NowPlayingStudioFragment';
 import { triggerHaptic } from '../utils/haptics';
 
+import { useTranslation } from '../services/i18n';
+
 interface FavoritesViewProps {
   onOpenAddStation: () => void;
   onSetAlarm: (station: RadioStation) => void;
@@ -34,6 +36,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
   onOpenScreensaver,
   onOpenFullPlayer,
 }) => {
+  const { t } = useTranslation();
   const [favorites, setFavorites] = useState<RadioStation[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTag, setSelectedTag] = useState<string>('All');
@@ -285,7 +288,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
               <input
                 type="text"
-                placeholder="Search favorites by name, genre or tag..."
+                placeholder={t('search_favorites_placeholder', 'Search favorites by name, genre or tag...')}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-[var(--surface-main)]/60 backdrop-blur-xl border border-[var(--border-color)] text-xs text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-primary)] shadow-md shadow-black/10"

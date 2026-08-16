@@ -9,6 +9,8 @@ import { PodcastCard } from '../components/PodcastCard';
 import { NowPlayingStudioFragment } from '../components/NowPlayingStudioFragment';
 import { triggerHaptic } from '../utils/haptics';
 
+import { useTranslation } from '../services/i18n';
+
 interface PodcastsViewProps {
   onSelectPodcast: (show: PodcastShow) => void;
   onOpenEqualizer?: () => void;
@@ -39,6 +41,7 @@ export const PodcastsView: React.FC<PodcastsViewProps> = ({
   onOpenScreensaver,
   onOpenFullPlayer,
 }) => {
+  const { t } = useTranslation();
   const [podcasts, setPodcasts] = useState<PodcastShow[]>([]);
   const [featuredPodcasts, setFeaturedPodcasts] = useState<PodcastShow[]>([]);
   const [recentEpisodes, setRecentEpisodes] = useState<{ show: RadioStation; episode: PodcastEpisode; timestamp: number }[]>([]);
@@ -98,7 +101,7 @@ export const PodcastsView: React.FC<PodcastsViewProps> = ({
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
           <input
             type="text"
-            placeholder="Search global podcasts..."
+            placeholder={t('podcasts_search_placeholder', 'Search global podcasts...')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-10 pr-10 py-3 rounded-2xl bg-[var(--surface-main)]/60 backdrop-blur-xl border border-[var(--border-color)] text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-secondary)] shadow-md shadow-black/10 transition-colors"
@@ -121,7 +124,7 @@ export const PodcastsView: React.FC<PodcastsViewProps> = ({
                 <Clock className="w-3.5 h-3.5" />
               </div>
               <h3 className="text-sm font-bold uppercase tracking-wider text-[var(--text-primary)]">
-                Continue Listening
+                {t('continue_listening', 'Continue Listening')}
               </h3>
             </div>
 

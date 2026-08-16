@@ -64,7 +64,17 @@ export const SUPPORTED_LANGUAGES: LanguageMeta[] = [
   { code: 'lt', name: 'Lithuanian', nativeName: 'Lietuvių', dir: 'ltr', flag: '🇱🇹' },
   { code: 'lv', name: 'Latvian', nativeName: 'Latviešu', dir: 'ltr', flag: '🇱🇻' },
   { code: 'et', name: 'Estonian', nativeName: 'Eesti', dir: 'ltr', flag: '🇪🇪' },
-  { code: 'ca', name: 'Catalan', nativeName: 'Català', dir: 'ltr', flag: '🇪🇸' }
+  { code: 'ca', name: 'Catalan', nativeName: 'Català', dir: 'ltr', flag: '🇪🇸' },
+  { code: 'sl', name: 'Slovenian', nativeName: 'Slovenščina', dir: 'ltr', flag: '🇸🇮' },
+  { code: 'is', name: 'Icelandic', nativeName: 'Íslenska', dir: 'ltr', flag: '🇮🇸' },
+  { code: 'mt', name: 'Maltese', nativeName: 'Malti', dir: 'ltr', flag: '🇲🇹' },
+  { code: 'ga', name: 'Irish', nativeName: 'Gaeilge', dir: 'ltr', flag: '🇮🇪' },
+  { code: 'af', name: 'Afrikaans', nativeName: 'Afrikaans', dir: 'ltr', flag: '🇿🇦' },
+  { code: 'sq', name: 'Albanian', nativeName: 'Shqip', dir: 'ltr', flag: '🇦🇱' },
+  { code: 'mk', name: 'Macedonian', nativeName: 'Македонски', dir: 'ltr', flag: '🇲🇰' },
+  { code: 'hy', name: 'Armenian', nativeName: 'Հայերեն', dir: 'ltr', flag: '🇦🇲' },
+  { code: 'ka', name: 'Georgian', nativeName: 'ქართული', dir: 'ltr', flag: '🇬🇪' },
+  { code: 'eu', name: 'Basque', nativeName: 'Euskara', dir: 'ltr', flag: '🇪🇸' }
 ];
 
 export type TranslationKey =
@@ -139,7 +149,8 @@ export type TranslationKey =
   | 'time_based_theme_title'
   | 'time_based_theme_desc'
   | 'visualizer_theme_title'
-  | 'visualizer_theme_desc';
+  | 'visualizer_theme_desc'
+  | (string & {});
 
 // High-fidelity dictionaries for major languages with fallback mechanism
 const TRANSLATIONS: Record<string, Partial<Record<TranslationKey, string>>> = {
