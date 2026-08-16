@@ -59,8 +59,6 @@ export const SleepTimerModal: React.FC<SleepTimerModalProps> = ({ isOpen, onClos
     return unsub;
   }, []);
 
-  if (!isOpen) return null;
-
   const handleStartTimer = (mins = selectedDuration) => {
     const effectiveFade = isFadeOutEnabled ? Math.min(5, mins) : 0;
     audioEngine.startSleepTimer(mins, effectiveFade, fadeCurve);
@@ -85,6 +83,8 @@ export const SleepTimerModal: React.FC<SleepTimerModalProps> = ({ isOpen, onClos
 
   const isTimerActive = remainingSec !== null && remainingSec > 0;
   const isFadingActive = isTimerActive && fadeSec !== null && fadeSec > 0 && remainingSec <= fadeSec;
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/90 backdrop-blur-sm animate-fadeIn overflow-y-auto">

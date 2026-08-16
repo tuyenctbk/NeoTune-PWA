@@ -400,6 +400,21 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       textPrimaryHex: '#FFFFFF',
       textMutedHex: '#71717A',
       borderHex: 'rgba(255, 255, 255, 0.12)'
+    },
+    {
+      id: 'daylight',
+      name: 'Daylight Blue Glass',
+      tagline: 'Deep Slate Navy #0F172A with Sky Blue & Indigo Highlights',
+      desc: 'High-contrast Slate Navy #0F172A with Sky Blue & Indigo Highlights',
+      previewColor: 'bg-gradient-to-r from-sky-400 to-indigo-400',
+      bgHex: '#0F172A',
+      surfaceHex: 'rgba(30, 41, 59, 0.88)',
+      accentPrimaryHex: '#38BDF8',
+      accentSecondaryHex: '#818CF8',
+      accentTertiaryHex: '#34D399',
+      textPrimaryHex: '#F8FAFC',
+      textMutedHex: '#94A3B8',
+      borderHex: 'rgba(56, 189, 248, 0.22)'
     }
   ];
 

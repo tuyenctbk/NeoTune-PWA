@@ -17,7 +17,7 @@ export const NeoTuneLogo: React.FC<NeoTuneLogoProps> = ({
     <div className={`flex items-center gap-2.5 select-none ${className}`}>
       <div 
         style={{ width: size, height: size }}
-        className="relative shrink-0 rounded-xl overflow-hidden p-0.5 bg-gradient-to-tr from-cyan-500/20 via-purple-500/20 to-pink-500/20 border border-white/15 shadow-inner flex items-center justify-center group"
+        className="relative shrink-0 rounded-xl overflow-hidden p-[1px] bg-gradient-to-tr from-cyan-400 via-purple-500 to-pink-500 shadow-md shadow-purple-950/50 flex items-center justify-center group"
       >
         <svg 
           viewBox="0 0 192 192" 
@@ -26,19 +26,24 @@ export const NeoTuneLogo: React.FC<NeoTuneLogoProps> = ({
           className={`w-full h-full transition-transform duration-300 ${isPlaying ? 'scale-105' : 'group-hover:scale-105'}`}
         >
           <defs>
-            <radialGradient id="logoBg" cx="50%" cy="40%" r="60%">
-              <stop offset="0%" stopColor="#1e1136"/>
-              <stop offset="60%" stopColor="#0c0614"/>
-              <stop offset="100%" stopColor="#050208"/>
+            {/* Background Radial Gradient */}
+            <radialGradient id="neoLogoBg" cx="50%" cy="30%" r="70%">
+              <stop offset="0%" stopColor="#2A1448" />
+              <stop offset="60%" stopColor="#120722" />
+              <stop offset="100%" stopColor="#080212" />
             </radialGradient>
-            <linearGradient id="logoNeon" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#00f0ff"/>
-              <stop offset="35%" stopColor="#7000ff"/>
-              <stop offset="70%" stopColor="#ff007b"/>
-              <stop offset="100%" stopColor="#ff9900"/>
+
+            {/* Vibrant High-Contrast Gradient for Waves & Soundbars */}
+            <linearGradient id="neoLogoNeon" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#00F0FF" />
+              <stop offset="45%" stopColor="#A855F7" />
+              <stop offset="85%" stopColor="#EC4899" />
+              <stop offset="100%" stopColor="#F59E0B" />
             </linearGradient>
-            <filter id="logoGlow" x="-20%" y="-20%" width="140%" height="140%">
-              <feGaussianBlur stdDeviation="4" result="blur" />
+
+            {/* Subtle Sharp Glow Effect */}
+            <filter id="sharpGlow" x="-20%" y="-20%" width="140%" height="140%">
+              <feGaussianBlur stdDeviation="1.5" result="blur" />
               <feMerge>
                 <feMergeNode in="blur" />
                 <feMergeNode in="SourceGraphic" />
@@ -46,38 +51,68 @@ export const NeoTuneLogo: React.FC<NeoTuneLogoProps> = ({
             </filter>
           </defs>
 
-          <rect width="192" height="192" rx="42" fill="url(#logoBg)"/>
-          
-          <g filter="url(#logoGlow)">
-            {/* Waves */}
+          {/* Squircle Dark Canvas */}
+          <rect width="192" height="192" rx="44" fill="url(#neoLogoBg)" />
+
+          {/* Inner Ambient Glow Ring */}
+          <rect width="188" height="188" x="2" y="2" rx="42" fill="none" stroke="url(#neoLogoNeon)" strokeWidth="2" opacity="0.35" />
+
+          {/* Core Graphic Group */}
+          <g filter="url(#sharpGlow)">
+            {/* Arcing Radio Waves */}
             <path 
-              d="M44 78 A 58 58 0 0 1 148 78" 
+              d="M 38 72 A 62 62 0 0 1 154 72" 
               fill="none" 
-              stroke="url(#logoNeon)" 
-              strokeWidth="6" 
+              stroke="url(#neoLogoNeon)" 
+              strokeWidth="7" 
               strokeLinecap="round" 
               className={isPlaying ? 'animate-pulse' : ''}
-              opacity="0.65"
+              opacity="0.75"
             />
             <path 
-              d="M60 90 A 40 40 0 0 1 132 90" 
+              d="M 54 86 A 46 46 0 0 1 138 86" 
               fill="none" 
-              stroke="url(#logoNeon)" 
-              strokeWidth="6" 
+              stroke="url(#neoLogoNeon)" 
+              strokeWidth="7" 
               strokeLinecap="round" 
-              opacity="0.9"
+              opacity="0.95"
             />
 
-            {/* Pulsing Central Soundbars */}
-            <rect x="68" y="104" width="8" height="42" rx="4" fill="url(#logoNeon)" className={isPlaying ? 'animate-bounce' : ''} style={{ animationDelay: '0ms' }} />
-            <rect x="82" y="93" width="8" height="53" rx="4" fill="url(#logoNeon)" className={isPlaying ? 'animate-bounce' : ''} style={{ animationDelay: '150ms' }} />
-            <rect x="96" y="82" width="8" height="64" rx="4" fill="url(#logoNeon)" className={isPlaying ? 'animate-bounce' : ''} style={{ animationDelay: '300ms' }} />
-            <rect x="110" y="93" width="8" height="53" rx="4" fill="url(#logoNeon)" className={isPlaying ? 'animate-bounce' : ''} style={{ animationDelay: '150ms' }} />
-            <rect x="124" y="104" width="8" height="42" rx="4" fill="url(#logoNeon)" className={isPlaying ? 'animate-bounce' : ''} style={{ animationDelay: '0ms' }} />
+            {/* Central Sound Equalizer Bars */}
+            <rect 
+              x="62" y="104" width="10" height="42" rx="5" 
+              fill="url(#neoLogoNeon)" 
+              className={isPlaying ? 'animate-bounce' : ''} 
+              style={{ animationDelay: '0ms' }} 
+            />
+            <rect 
+              x="79" y="93" width="10" height="53" rx="5" 
+              fill="url(#neoLogoNeon)" 
+              className={isPlaying ? 'animate-bounce' : ''} 
+              style={{ animationDelay: '150ms' }} 
+            />
+            <rect 
+              x="96" y="80" width="10" height="66" rx="5" 
+              fill="url(#neoLogoNeon)" 
+              className={isPlaying ? 'animate-bounce' : ''} 
+              style={{ animationDelay: '300ms' }} 
+            />
+            <rect 
+              x="113" y="93" width="10" height="53" rx="5" 
+              fill="url(#neoLogoNeon)" 
+              className={isPlaying ? 'animate-bounce' : ''} 
+              style={{ animationDelay: '150ms' }} 
+            />
+            <rect 
+              x="130" y="104" width="10" height="42" rx="5" 
+              fill="url(#neoLogoNeon)" 
+              className={isPlaying ? 'animate-bounce' : ''} 
+              style={{ animationDelay: '0ms' }} 
+            />
 
-            {/* Broadcast Beacon */}
-            <circle cx="96" cy="56" r="6" fill="#00f0ff" className={isPlaying ? 'animate-ping' : ''} style={{ animationDuration: '2s' }} />
-            <circle cx="96" cy="56" r="3.5" fill="#ffffff" />
+            {/* Radio Beacon Top Signal Indicator */}
+            <circle cx="96" cy="50" r="7" fill="#00F0FF" className={isPlaying ? 'animate-ping' : ''} style={{ animationDuration: '2s' }} />
+            <circle cx="96" cy="50" r="4" fill="#FFFFFF" />
           </g>
         </svg>
       </div>
@@ -100,3 +135,4 @@ export const NeoTuneLogo: React.FC<NeoTuneLogoProps> = ({
     </div>
   );
 };
+

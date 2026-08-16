@@ -39,8 +39,23 @@ export const AlarmModal: React.FC<AlarmModalProps> = ({ isOpen, onClose, station
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [permissionState, setPermissionState] = useState<string>('default');
   const [isPreviewing, setIsPreviewing] = useState(false);
+  const isPreviewingRef = useRef(false);
+  isPreviewingRef.current = isPreviewing;
+
   const [isTestingSpeech, setIsTestingSpeech] = useState(false);
   const [weatherPreviewText, setWeatherPreviewText] = useState<string>('');
+
+  const stopPreviewAndRestoreVolume = () => {
+    audioEngine.stopSystemChimeLoop();
+    if (isPreviewingRef.current) {
+      audioEngine.stop();
+      setIsPreviewing(false);
+      isPreviewingRef.current = false;
+      // Restore user volume
+      const savedVol = storageService.getVolume();
+      audioEngine.setVolume(savedVol);
+    }
+  };
 
   // Voice Memo Mic Recording State
   const [isRecordingMemo, setIsRecordingMemo] = useState(false);
@@ -200,8 +215,6 @@ export const AlarmModal: React.FC<AlarmModalProps> = ({ isOpen, onClose, station
     }
   };
 
-  if (!isOpen) return null;
-
   const handleDayToggle = (dayIndex: number) => {
     const currentDays = config.days || [];
     let updatedDays: number[];
@@ -227,16 +240,6 @@ export const AlarmModal: React.FC<AlarmModalProps> = ({ isOpen, onClose, station
   const handleRequestPermission = async () => {
     const granted = await firebaseService.requestNotificationPermission();
     setPermissionState(granted ? 'granted' : 'denied');
-  };
-
-  const stopPreviewAndRestoreVolume = () => {
-    if (isPreviewing) {
-      audioEngine.stop();
-      setIsPreviewing(false);
-      // Restore user volume
-      const savedVol = storageService.getVolume();
-      audioEngine.setVolume(savedVol);
-    }
   };
 
   const handleSave = async () => {
@@ -299,6 +302,8 @@ export const AlarmModal: React.FC<AlarmModalProps> = ({ isOpen, onClose, station
       });
     }
   };
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/90 backdrop-blur-sm animate-fadeIn overflow-y-auto">

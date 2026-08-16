@@ -292,7 +292,7 @@ export const RadioView: React.FC<RadioViewProps> = ({
   }, [stations, recommendedStations, trendingNowStations, recents, currentStationId]);
 
   // Set of queued station IDs for fast lookup
-  const queuedIds = useMemo(() => new Set(queuedStations.map(q => q.station.id)), [queuedStations]);
+  const queuedIds = useMemo(() => new Set(queuedStations.map(q => q.id)), [queuedStations]);
 
   // Subscribe to Audio Engine, Firebase Remote Config, Firestore Recent Stations & Queue
   useEffect(() => {
@@ -643,7 +643,7 @@ export const RadioView: React.FC<RadioViewProps> = ({
 
   const handleClearQueue = async () => {
     for (const q of queuedStations) {
-      await firebaseService.removeQueuedStationFromCloud(q.station.id);
+      await firebaseService.removeQueuedStationFromCloud(q.id);
     }
     storageService.clearQueue();
     setQueuedStations([]);
@@ -1088,10 +1088,10 @@ export const RadioView: React.FC<RadioViewProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             {queuedStations.map((item) => (
               <StationCard
-                key={`queue_${item.station.id}`}
-                station={{ ...item.station, isFavorite: favoriteIds.has(item.station.id) }}
+                key={`queue_${item.id}`}
+                station={{ ...item, isFavorite: favoriteIds.has(item.id) }}
                 isPlaying={isPlaying}
-                isCurrent={currentStationId === item.station.id}
+                isCurrent={currentStationId === item.id}
                 isQueued={true}
                 onPlay={handlePlayStation}
                 onToggleFavorite={handleToggleFavorite}

@@ -102,8 +102,6 @@ export const DiagnosticsModal: React.FC<DiagnosticsModalProps> = ({
     };
   }, [isOpen]);
 
-  if (!isOpen) return null;
-
   const handleCopyReport = () => {
     try {
       const report = diagnosticsService.generateReport();
@@ -138,6 +136,8 @@ export const DiagnosticsModal: React.FC<DiagnosticsModalProps> = ({
   };
 
   const filteredLogs = logs.filter(l => filterLevel === 'all' || l.level === filterLevel);
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/90 backdrop-blur-sm animate-fadeIn overflow-y-auto">

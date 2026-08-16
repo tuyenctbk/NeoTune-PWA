@@ -214,7 +214,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
     if (!favSwipeStartX.current || !favSwipeEndX.current) return;
     const diff = favSwipeStartX.current - favSwipeEndX.current;
     if (Math.abs(diff) > 60 && availableTags.length > 0) {
-      const allTagOptions = [null, ...availableTags];
+      const allTagOptions = ['All', ...availableTags.map(t => t[0])];
       const currentIndex = allTagOptions.indexOf(selectedTag);
       if (diff > 0) {
         // Swipe Left -> next tag filter

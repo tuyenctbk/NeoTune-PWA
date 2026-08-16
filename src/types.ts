@@ -143,7 +143,7 @@ export interface RemoteConfig {
   update_notes: string;
 }
 
-export type ThemeType = 'frosted-glass' | 'cyberpunk' | 'jazz' | 'rock' | 'oled';
+export type ThemeType = 'frosted-glass' | 'cyberpunk' | 'jazz' | 'rock' | 'oled' | 'daylight';
 
 export type AppView = 'radio' | 'podcasts' | 'favorites' | 'settings';
 
