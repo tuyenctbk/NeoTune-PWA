@@ -8,6 +8,7 @@ interface KeyboardShortcutHandlers {
   onOpenEQ?: () => void;
   onOpenSleepTimer?: () => void;
   onOpenCarMode?: () => void;
+  onOpenSearch?: () => void;
   stations?: RadioStation[];
 }
 
@@ -24,6 +25,15 @@ export function useKeyboardShortcuts(handlers: KeyboardShortcutHandlers = {}) {
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Global Ctrl+K / Cmd+K search shortcut
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        if (handlers.onOpenSearch) {
+          e.preventDefault();
+          handlers.onOpenSearch();
+          return;
+        }
+      }
+
       // Ignore if typing inside form inputs or editable fields
       const target = e.target as HTMLElement | null;
       if (

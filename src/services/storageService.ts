@@ -277,10 +277,25 @@ export const storageService = {
     }
   },
 
+  getRecentlyAddedStations(limit = 5): RadioStation[] {
+    const list = this.getCustomStations();
+    return list
+      .sort((a, b) => ((b.dateAdded || b.lastListenedTimestamp || 0) - (a.dateAdded || a.lastListenedTimestamp || 0)))
+      .slice(0, limit);
+  },
+
   addCustomStation(station: RadioStation): void {
     const list = this.getCustomStations();
-    list.unshift({ ...station, isCustom: true, id: `custom_${Date.now()}` });
-    safeStorage.setItem(STORAGE_KEYS.CUSTOM_STATIONS, JSON.stringify(list));
+    const cleanId = station.id && (station.id.startsWith('custom_') || station.isCustom) ? station.id : `custom_${Date.now()}`;
+    const newStation: RadioStation = {
+      ...station,
+      id: cleanId,
+      isCustom: true,
+      dateAdded: station.dateAdded || Date.now()
+    };
+    const filtered = list.filter(s => s.id !== newStation.id && s.streamUrl !== newStation.streamUrl);
+    filtered.unshift(newStation);
+    safeStorage.setItem(STORAGE_KEYS.CUSTOM_STATIONS, JSON.stringify(filtered));
   },
 
   deleteCustomStation(id: string): void {

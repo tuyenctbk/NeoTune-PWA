@@ -9,6 +9,7 @@ import { AppView, ThemeType, UserProfile, SyncStatusInfo } from '../types';
 import { DevicePlatform } from '../hooks/usePWAInstall';
 import { firebaseService } from '../services/firebaseService';
 import { VoiceControlWidget } from './VoiceControlWidget';
+import { NeoTuneLogo } from './NeoTuneLogo';
 import { triggerHaptic } from '../utils/haptics';
 import { useTranslation } from '../services/i18n';
 
@@ -128,29 +129,19 @@ export const Navbar: React.FC<NavbarProps> = ({
           {!isCollapsed && (
             <div 
               onClick={() => onSelectView('radio')}
-              className="flex items-center gap-2.5 min-w-0 cursor-pointer select-none"
+              className="cursor-pointer select-none"
             >
-              <div className="p-2 rounded-xl bg-gradient-to-tr from-[var(--accent-primary)]/20 to-[var(--accent-secondary)]/20 border border-[var(--accent-primary)]/30 text-[var(--accent-primary)] shrink-0 shadow-inner">
-                <Radio className="w-4 h-4 animate-pulse" />
-              </div>
-              <div className="min-w-0">
-                <span className="text-base font-black tracking-tight bg-gradient-to-r from-white via-slate-100 to-slate-400 bg-clip-text text-transparent">
-                  NeoTune
-                </span>
-                <span className="block text-[8px] uppercase font-bold tracking-widest text-[var(--accent-primary)]">
-                  Live Hub
-                </span>
-              </div>
+              <NeoTuneLogo size={36} showText={true} />
             </div>
           )}
 
           {isCollapsed && (
             <div 
               onClick={() => onSelectView('radio')}
-              className="mx-auto p-2.5 rounded-xl bg-gradient-to-tr from-[var(--accent-primary)]/20 to-[var(--accent-secondary)]/20 border border-[var(--accent-primary)]/30 text-[var(--accent-primary)] cursor-pointer hover:scale-105 transition-transform"
+              className="mx-auto cursor-pointer hover:scale-105 transition-transform"
               title="NeoTune Live Hub"
             >
-              <Radio className="w-5 h-5" />
+              <NeoTuneLogo size={36} showText={false} />
             </div>
           )}
 
@@ -580,20 +571,11 @@ export const Navbar: React.FC<NavbarProps> = ({
         <div className="max-w-7xl mx-auto px-3 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-2 sm:gap-4">
           
           {/* Left Logo */}
-          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-            <div 
-              onClick={() => onSelectView('radio')}
-              className="p-2 rounded-xl bg-gradient-to-tr from-[var(--accent-primary)]/20 to-[var(--accent-secondary)]/20 border border-[var(--accent-primary)]/30 text-[var(--accent-primary)] shrink-0 cursor-pointer"
-            >
-              <Radio className="w-4 h-4" />
-            </div>
-            <div className="min-w-0 cursor-pointer" onClick={() => onSelectView('radio')}>
-              <div className="flex items-center gap-1">
-                <span className="text-base font-black tracking-tight bg-gradient-to-r from-white via-slate-100 to-slate-400 bg-clip-text text-transparent truncate">
-                  NeoTune
-                </span>
-              </div>
-            </div>
+          <div 
+            onClick={() => onSelectView('radio')}
+            className="cursor-pointer select-none"
+          >
+            <NeoTuneLogo size={32} showText={true} />
           </div>
 
           {/* Right Action Widgets */}

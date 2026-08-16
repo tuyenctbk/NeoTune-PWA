@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { X, Play, Pause, RotateCcw, RotateCw, Gauge, Clock, Calendar, RefreshCw, AlertCircle } from 'lucide-react';
+import { X, Play, Pause, RotateCcw, RotateCw, Gauge, Clock, Calendar, RefreshCw, AlertCircle, Share2, Check } from 'lucide-react';
 import { PodcastShow, PodcastEpisode, RadioStation } from '../types';
 import { apiService } from '../services/apiService';
 import { audioEngine } from '../services/audioEngine';
 import { storageService } from '../services/storageService';
+import { shareContent, createPodcastEpisodeShareData } from '../utils/shareHelper';
 
 interface PodcastEpisodeDrawerProps {
   show: PodcastShow | null;
@@ -24,6 +25,46 @@ export const PodcastEpisodeDrawer: React.FC<PodcastEpisodeDrawerProps> = ({
   const [speed, setSpeed] = useState(1.0);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [sharedEpisodeId, setSharedEpisodeId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isOpen && show && show.feedUrl) {
+      setLoading(true);
+      setError(null);
+      apiService.getPodcastEpisodes(show.feedUrl, show.id)
+        .then((items) => {
+          setEpisodes(items);
+          setLoading(false);
+        })
+        .catch(() => {
+          setError('Could not load RSS feed. Stream may be protected or invalid.');
+          setLoading(false);
+        });
+    }
+  }, [isOpen, show]);
+
+  useEffect(() => {
+    const unsub = audioEngine.subscribe((state) => {
+      setIsPlaying(state.isPlaying);
+      setActiveEpId(state.currentEpisode?.id || null);
+      setCurrentTime(state.currentTime);
+      setDuration(state.duration);
+      setSpeed(state.playbackSpeed);
+    });
+    return unsub;
+  }, []);
+
+  if (!isOpen || !show) return null;
+
+  const handleShareEpisode = async (e: React.MouseEvent, episode: PodcastEpisode) => {
+    e.stopPropagation();
+    const payload = createPodcastEpisodeShareData(show, episode);
+    const result = await shareContent(payload);
+    if (result.success) {
+      setSharedEpisodeId(episode.id);
+      setTimeout(() => setSharedEpisodeId(null), 2500);
+    }
+  };
 
   useEffect(() => {
     if (isOpen && show && show.feedUrl) {
@@ -242,20 +283,35 @@ export const PodcastEpisodeDrawer: React.FC<PodcastEpisodeDrawerProps> = ({
                       </p>
                     </div>
 
-                    <button
-                      className={`p-2.5 rounded-full shrink-0 transition-colors ${
-                        isCurrent && isPlaying
-                          ? 'bg-[var(--accent-secondary)] text-white'
-                          : 'bg-white/10 hover:bg-white/20 text-white'
-                      }`}
-                      aria-label="Play episode"
-                    >
-                      {isCurrent && isPlaying ? (
-                        <Pause className="w-4 h-4 fill-current" />
-                      ) : (
-                        <Play className="w-4 h-4 fill-current ml-0.5" />
-                      )}
-                    </button>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={(e) => handleShareEpisode(e, ep)}
+                        className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-[var(--text-muted)] hover:text-white transition-colors"
+                        title="Share episode via Web Share API"
+                      >
+                        {sharedEpisodeId === ep.id ? (
+                          <Check className="w-4 h-4 text-emerald-400" />
+                        ) : (
+                          <Share2 className="w-4 h-4" />
+                        )}
+                      </button>
+
+                      <button
+                        onClick={() => handlePlayEpisode(ep)}
+                        className={`p-2.5 rounded-full transition-colors ${
+                          isCurrent && isPlaying
+                            ? 'bg-[var(--accent-secondary)] text-white'
+                            : 'bg-white/10 hover:bg-white/20 text-white'
+                        }`}
+                        aria-label="Play episode"
+                      >
+                        {isCurrent && isPlaying ? (
+                          <Pause className="w-4 h-4 fill-current" />
+                        ) : (
+                          <Play className="w-4 h-4 fill-current ml-0.5" />
+                        )}
+                      </button>
+                    </div>
                   </div>
 
                   {/* Stored resume progress bar */}

@@ -30,6 +30,7 @@ import { PWAInstallBanner } from './components/PWAInstallBanner';
 import { KeyboardShortcutsModal } from './components/dialogs/KeyboardShortcutsModal';
 import { DiagnosticsModal } from './components/dialogs/DiagnosticsModal';
 import { AuthModal } from './components/dialogs/AuthModal';
+import { GlobalQuickSearchModal } from './components/dialogs/GlobalQuickSearchModal';
 
 // Views
 import { RadioView } from './views/RadioView';
@@ -97,6 +98,7 @@ export default function App() {
   const [isPWAInstallOpen, setIsPWAInstallOpen] = useState(false);
   const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState(false);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
+  const [isGlobalQuickSearchOpen, setIsGlobalQuickSearchOpen] = useState(false);
 
   // Global PC & PWA Keyboard Shortcuts listener
   const { toastMessage } = useKeyboardShortcuts({
@@ -104,6 +106,7 @@ export default function App() {
     onOpenEQ: () => setIsEQOpen(true),
     onOpenSleepTimer: () => setIsSleepTimerOpen(true),
     onOpenCarMode: () => setIsCarMode(true),
+    onOpenSearch: () => setIsGlobalQuickSearchOpen(true),
     stations: availableStations
   });
 
@@ -715,13 +718,7 @@ export default function App() {
         platform={platform}
         currentUser={currentUser}
         onOpenAuth={() => setIsAuthOpen(true)}
-        onOpenSearch={() => {
-          setCurrentView('radio');
-          setTimeout(() => {
-            const el = document.getElementById('radio-search-input');
-            if (el) el.focus();
-          }, 100);
-        }}
+        onOpenSearch={() => setIsGlobalQuickSearchOpen(true)}
       />
 
       {/* Main Layout Area on the right of the sidebar on desktop */}
@@ -1020,6 +1017,15 @@ export default function App() {
       <DiagnosticsModal
         isOpen={isDiagnosticsOpen}
         onClose={() => setIsDiagnosticsOpen(false)}
+      />
+
+      <GlobalQuickSearchModal
+        isOpen={isGlobalQuickSearchOpen}
+        onClose={() => setIsGlobalQuickSearchOpen(false)}
+        onPlayPodcastEpisode={(show, ep) => {
+          setSelectedPodcastShow(show);
+          audioEngine.playPodcastEpisode(show, ep);
+        }}
       />
 
       {/* Screen Dimming Fullscreen Overlay for Sleep Timer Fade-Out */}

@@ -144,6 +144,7 @@ export const RadioView: React.FC<RadioViewProps> = ({
   const [preferredQuality, setPreferredQuality] = useState<'all' | 'high_quality'>(() => storageService.getPreferredQuality());
   const [isAddCustomModalOpen, setIsAddCustomModalOpen] = useState(false);
   const [customStations, setCustomStations] = useState<RadioStation[]>(() => storageService.getCustomStations());
+  const [recentlyAddedStations, setRecentlyAddedStations] = useState<RadioStation[]>(() => storageService.getRecentlyAddedStations(5));
   const [stationLimit, setStationLimit] = useState<number>(96);
   const [isLoadingMore, setIsLoadingMore] = useState<boolean>(false);
 
@@ -603,6 +604,7 @@ export const RadioView: React.FC<RadioViewProps> = ({
   const handleCustomStationAdded = (newStation: RadioStation) => {
     const updatedCustoms = storageService.getCustomStations();
     setCustomStations(updatedCustoms);
+    setRecentlyAddedStations(storageService.getRecentlyAddedStations(5));
     setFavorites(storageService.getFavorites());
     audioEngine.playStation(newStation);
     setRecents(storageService.getRecents());
@@ -1091,6 +1093,60 @@ export const RadioView: React.FC<RadioViewProps> = ({
                 isPlaying={isPlaying}
                 isCurrent={currentStationId === item.station.id}
                 isQueued={true}
+                onPlay={handlePlayStation}
+                onToggleFavorite={handleToggleFavorite}
+                onToggleQueue={handleToggleQueue}
+                onSetAlarm={onSetAlarm}
+                onShare={onShareStation}
+                onBlockStation={onBlockStation}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 2.2 'Recently Added Stations' Section (Last 5 custom or imported stations) */}
+      {!searchQuery && recentlyAddedStations.length > 0 && (activeTag === 'All' || activeTag === 'All Genres') && !selectedCountryName && (
+        <div className="p-4 sm:p-5 rounded-3xl bg-[var(--surface-main)]/70 backdrop-blur-xl border border-emerald-500/20 shadow-xl shadow-black/20 space-y-3.5 animate-fadeIn">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                <Plus className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-bold uppercase tracking-wider text-[var(--text-primary)]">
+                    Recently Added Stations ({recentlyAddedStations.length})
+                  </h3>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold">
+                    Custom / Imported
+                  </span>
+                </div>
+                <p className="text-xs text-[var(--text-muted)]">Your latest manually added live audio streams</p>
+              </div>
+            </div>
+
+            <button
+              onClick={() => {
+                triggerHaptic('selection');
+                if (onOpenAddStation) onOpenAddStation();
+                else setIsAddCustomModalOpen(true);
+              }}
+              className="text-[11px] text-emerald-300 hover:text-emerald-200 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 transition-all cursor-pointer font-bold"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Add Station</span>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
+            {recentlyAddedStations.map((station) => (
+              <StationCard
+                key={`recent_added_${station.id}`}
+                station={{ ...station, isFavorite: favoriteIds.has(station.id) }}
+                isPlaying={isPlaying}
+                isCurrent={currentStationId === station.id}
+                isQueued={queuedIds.has(station.id)}
                 onPlay={handlePlayStation}
                 onToggleFavorite={handleToggleFavorite}
                 onToggleQueue={handleToggleQueue}

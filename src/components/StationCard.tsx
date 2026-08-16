@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Play, Pause, Heart, MoreVertical, Bell, ShieldAlert, Share2, Radio, ExternalLink, Bookmark, BookmarkCheck, Tag, Globe, Gauge, Cpu, ChevronDown, ChevronUp, Link as LinkIcon, Sparkles, FileText, QrCode, Volume2 } from 'lucide-react';
+import { Play, Pause, Heart, MoreVertical, Bell, ShieldAlert, Share2, Radio, ExternalLink, Bookmark, BookmarkCheck, Tag, Globe, Gauge, Cpu, ChevronDown, ChevronUp, Link as LinkIcon, Sparkles, FileText, QrCode, Volume2, Check } from 'lucide-react';
 import { RadioStation } from '../types';
 import { storageService } from '../services/storageService';
 import { audioEngine } from '../services/audioEngine';
 import { triggerHaptic } from '../utils/haptics';
+import { shareContent, createStationShareData } from '../utils/shareHelper';
 
 interface StationCardProps {
   station: RadioStation;
@@ -35,6 +36,7 @@ export const StationCard: React.FC<StationCardProps> = ({
   const [showMenu, setShowMenu] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [imgError, setImgError] = useState(false);
+  const [shareFeedback, setShareFeedback] = useState<string | null>(null);
 
   // Custom Station Note State
   const [stationNote, setStationNote] = useState<string>(() => storageService.getStationNote(station.id));
@@ -45,6 +47,16 @@ export const StationCard: React.FC<StationCardProps> = ({
   const [loudnessOverride, setLoudnessOverride] = useState<'default' | 'enabled' | 'disabled'>(
     () => storageService.getStationLoudnessOverride(station.id)
   );
+
+  const handleNativeShare = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const payload = createStationShareData(station);
+    const result = await shareContent(payload);
+    if (result.success) {
+      setShareFeedback(result.message);
+      setTimeout(() => setShareFeedback(null), 2500);
+    }
+  };
 
   useEffect(() => {
     const savedNote = storageService.getStationNote(station.id);
@@ -280,6 +292,14 @@ export const StationCard: React.FC<StationCardProps> = ({
               <span className="italic line-clamp-1 truncate">{stationNote}</span>
             </div>
           )}
+
+          {/* Share Feedback Toast Pill */}
+          {shareFeedback && (
+            <div className="mt-2 px-2.5 py-1 rounded-lg bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 text-[11px] font-semibold flex items-center gap-1.5 animate-fadeIn">
+              <Check className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+              <span>{shareFeedback}</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -337,17 +357,14 @@ export const StationCard: React.FC<StationCardProps> = ({
               <span className="text-[10px]">{station.isFavorite ? 'Saved' : 'Favorite'}</span>
             </button>
 
-            {/* Direct Share / QR Code Button */}
+            {/* Direct Share Button (Web Share API with fallback) */}
             <button
-              onClick={(e) => {
-                e.stopPropagation();
-                triggerHaptic('selection');
-                if (onShare) onShare(station);
-              }}
-              className="flex flex-col items-center justify-center py-2.5 px-2 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 text-xs font-bold transition-all cursor-pointer min-h-[50px]"
+              onClick={handleNativeShare}
+              className="flex flex-col items-center justify-center py-2.5 px-2 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 text-xs font-bold transition-all cursor-pointer min-h-[50px] relative"
+              title="Share station directly via Web Share API or copy link"
             >
-              <QrCode className="w-4 h-4 mb-0.5" />
-              <span className="text-[10px]">QR / Share</span>
+              <Share2 className="w-4 h-4 mb-0.5" />
+              <span className="text-[10px]">Share</span>
             </button>
 
             {/* Direct Alarm / Queue Button */}

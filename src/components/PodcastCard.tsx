@@ -1,6 +1,7 @@
-import React from 'react';
-import { Play, Mic, Radio, Layers } from 'lucide-react';
+import React, { useState } from 'react';
+import { Play, Mic, Radio, Layers, Share2, Check } from 'lucide-react';
 import { PodcastShow } from '../types';
+import { shareContent } from '../utils/shareHelper';
 
 interface PodcastCardProps {
   podcast: PodcastShow;
@@ -8,6 +9,23 @@ interface PodcastCardProps {
 }
 
 export const PodcastCard: React.FC<PodcastCardProps> = ({ podcast, onSelect }) => {
+  const [shareFeedback, setShareFeedback] = useState<string | null>(null);
+
+  const handleShare = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const appUrl = typeof window !== 'undefined' ? window.location.origin : 'https://neotune.app';
+    const payload = {
+      title: `${podcast.name} - NeoTune Podcasts`,
+      text: `Listen to ${podcast.name} (${podcast.genre}) on NeoTune Podcasts!`,
+      url: `${appUrl}?podcast=${encodeURIComponent(podcast.id)}`
+    };
+    const res = await shareContent(payload);
+    if (res.success) {
+      setShareFeedback(res.message);
+      setTimeout(() => setShareFeedback(null), 2500);
+    }
+  };
+
   return (
     <div
       onClick={() => onSelect(podcast)}
@@ -50,20 +68,35 @@ export const PodcastCard: React.FC<PodcastCardProps> = ({ podcast, onSelect }) =
               </span>
             )}
           </div>
+          {shareFeedback && (
+            <div className="mt-1.5 px-2 py-0.5 rounded-md bg-purple-500/20 text-purple-300 text-[10px] font-semibold flex items-center gap-1">
+              <Check className="w-3 h-3 text-purple-400" />
+              <span>{shareFeedback}</span>
+            </div>
+          )}
         </div>
       </div>
 
       <div className="mt-3 pt-2.5 border-t border-white/5 flex items-center justify-between text-xs text-[var(--text-muted)]">
         <span className="text-[11px] truncate">{podcast.artistName ? `By ${podcast.artistName}` : 'Podcast Feed'}</span>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onSelect(podcast);
-          }}
-          className="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white font-medium text-[11px] transition-colors"
-        >
-          Episodes
-        </button>
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={handleShare}
+            className="p-1.5 rounded-lg bg-white/5 hover:bg-white/15 text-[var(--text-muted)] hover:text-white transition-colors"
+            title="Share podcast"
+          >
+            <Share2 className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelect(podcast);
+            }}
+            className="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white font-medium text-[11px] transition-colors"
+          >
+            Episodes
+          </button>
+        </div>
       </div>
     </div>
   );
