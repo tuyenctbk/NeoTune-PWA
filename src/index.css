@@ -1,0 +1,301 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg-main: #0A050E;
+    --surface-main: rgba(26, 17, 36, 0.7);
+    --surface-hover: rgba(45, 29, 62, 0.75);
+    --surface-card: rgba(255, 255, 255, 0.04);
+    --accent-primary: #A78BFA;
+    --accent-secondary: #C084FC;
+    --accent-tertiary: #38BDF8;
+    --text-primary: #F8FAFC;
+    --text-muted: #94A3B8;
+    --border-color: rgba(255, 255, 255, 0.10);
+    --glass-blur: 24px;
+  }
+
+  [data-theme="frosted-glass"] {
+    --bg-main: #0A050E;
+    --surface-main: rgba(24, 15, 34, 0.72);
+    --surface-hover: rgba(43, 27, 60, 0.78);
+    --surface-card: rgba(255, 255, 255, 0.04);
+    --accent-primary: #A78BFA;
+    --accent-secondary: #C084FC;
+    --accent-tertiary: #38BDF8;
+    --text-primary: #F8FAFC;
+    --text-muted: #94A3B8;
+    --border-color: rgba(255, 255, 255, 0.10);
+    --glass-blur: 24px;
+  }
+
+  [data-theme="cyberpunk"] {
+    --bg-main: #0D0D12;
+    --surface-main: rgba(22, 22, 31, 0.85);
+    --surface-hover: rgba(34, 34, 46, 0.9);
+    --surface-card: rgba(255, 255, 255, 0.04);
+    --accent-primary: #00F0FF;
+    --accent-secondary: #A855F7;
+    --accent-tertiary: #EC4899;
+    --text-primary: #F8FAFC;
+    --text-muted: #94A3B8;
+    --border-color: rgba(0, 240, 255, 0.18);
+    --glass-blur: 20px;
+  }
+
+  [data-theme="jazz"] {
+    --bg-main: #121214;
+    --surface-main: rgba(28, 27, 31, 0.85);
+    --surface-hover: rgba(43, 41, 48, 0.9);
+    --surface-card: rgba(255, 255, 255, 0.04);
+    --accent-primary: #E5A93C;
+    --accent-secondary: #F5E6CA;
+    --accent-tertiary: #D97706;
+    --text-primary: #F5F0E8;
+    --text-muted: #A8A29E;
+    --border-color: rgba(229, 169, 60, 0.18);
+    --glass-blur: 20px;
+  }
+
+  [data-theme="rock"] {
+    --bg-main: #050505;
+    --surface-main: rgba(24, 24, 27, 0.85);
+    --surface-hover: rgba(39, 39, 42, 0.9);
+    --surface-card: rgba(255, 255, 255, 0.04);
+    --accent-primary: #FF1E56;
+    --accent-secondary: #FFAC1C;
+    --accent-tertiary: #EF4444;
+    --text-primary: #FAFAFA;
+    --text-muted: #A1A1AA;
+    --border-color: rgba(255, 30, 86, 0.2);
+    --glass-blur: 20px;
+  }
+
+  [data-theme="oled"] {
+    --bg-main: #000000;
+    --surface-main: rgba(18, 18, 18, 0.95);
+    --surface-hover: rgba(30, 30, 30, 0.95);
+    --surface-card: rgba(255, 255, 255, 0.03);
+    --accent-primary: #00F0FF;
+    --accent-secondary: #FFFFFF;
+    --accent-tertiary: #38BDF8;
+    --text-primary: #FFFFFF;
+    --text-muted: #71717A;
+    --border-color: rgba(255, 255, 255, 0.1);
+    --glass-blur: 16px;
+  }
+
+  body {
+    background-color: var(--bg-main);
+    color: var(--text-primary);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    user-select: none;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+}
+
+/* Custom Sleek Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--surface-hover);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent-primary);
+}
+
+/* TV & D-Pad Leanback Focus Ring Styles */
+.tv-focusable {
+  outline: 2px solid transparent;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.tv-focusable:focus-visible,
+.tv-focused {
+  outline: 2px solid var(--accent-primary) !important;
+  outline-offset: 2px;
+  transform: scale(1.04);
+  box-shadow: 0 0 16px var(--accent-primary) !important;
+  z-index: 20;
+}
+
+/* Audio Wave Visualizer Animation helper */
+@keyframes neonPulse {
+  0%, 100% { opacity: 0.85; filter: drop-shadow(0 0 8px var(--accent-primary)); }
+  50% { opacity: 1; filter: drop-shadow(0 0 16px var(--accent-secondary)); }
+}
+
+.neon-glow-primary {
+  box-shadow: 0 0 16px rgba(0, 240, 255, 0.25);
+}
+
+.neon-glow-secondary {
+  box-shadow: 0 0 16px rgba(168, 85, 247, 0.25);
+}
+
+/* Glassmorphic Utilities & Card Effects */
+.glass-panel {
+  background-color: var(--surface-main);
+  backdrop-filter: blur(var(--glass-blur, 24px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 24px));
+  border: 1px solid var(--border-color);
+}
+
+.glass-card {
+  background-color: rgba(255, 255, 255, 0.035);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+}
+
+.glass-card:hover {
+  background-color: rgba(255, 255, 255, 0.065);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.glass-input {
+  background-color: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.glass-pill {
+  background-color: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Marquee for long station titles */
+@keyframes marquee {
+  0% { transform: translateX(0%); }
+  100% { transform: translateX(-50%); }
+}
+
+.animate-marquee {
+  display: inline-block;
+  white-space: nowrap;
+  animation: marquee 16s linear infinite;
+}
+
+/* Visualizer Skins Keyframes & Animations */
+/* 1. Bars */
+@keyframes eqBar1 {
+  0%, 100% { height: 25%; }
+  30% { height: 95%; }
+  60% { height: 45%; }
+  80% { height: 80%; }
+}
+
+@keyframes eqBar2 {
+  0%, 100% { height: 40%; }
+  25% { height: 60%; }
+  50% { height: 100%; }
+  75% { height: 35%; }
+}
+
+@keyframes eqBar3 {
+  0%, 100% { height: 20%; }
+  35% { height: 75%; }
+  70% { height: 90%; }
+  85% { height: 30%; }
+}
+
+.animate-eq-bar-1 {
+  animation: eqBar1 0.75s ease-in-out infinite alternate;
+}
+
+.animate-eq-bar-2 {
+  animation: eqBar2 0.55s ease-in-out infinite alternate;
+}
+
+.animate-eq-bar-3 {
+  animation: eqBar3 0.85s ease-in-out infinite alternate;
+}
+
+/* 2. Circular Radial Radar */
+@keyframes circularPulse1 {
+  0% { transform: scale(0.3); opacity: 0.9; }
+  50% { transform: scale(1.0); opacity: 0.4; }
+  100% { transform: scale(1.4); opacity: 0; }
+}
+
+@keyframes circularPulse2 {
+  0% { transform: scale(0.4); opacity: 1; }
+  60% { transform: scale(1.1); opacity: 0.5; }
+  100% { transform: scale(1.5); opacity: 0; }
+}
+
+.animate-circular-1 {
+  animation: circularPulse1 1.6s cubic-bezier(0.2, 0.8, 0.2, 1) infinite;
+}
+
+.animate-circular-2 {
+  animation: circularPulse2 1.6s cubic-bezier(0.2, 0.8, 0.2, 1) 0.5s infinite;
+}
+
+/* 3. Waveform Undulating Oscilloscope */
+@keyframes waveformWave1 {
+  0%, 100% { transform: scaleY(0.25); }
+  50% { transform: scaleY(1.0); }
+}
+
+@keyframes waveformWave2 {
+  0%, 100% { transform: scaleY(0.45); }
+  50% { transform: scaleY(0.9); }
+}
+
+@keyframes waveformWave3 {
+  0%, 100% { transform: scaleY(0.85); }
+  50% { transform: scaleY(0.3); }
+}
+
+.animate-waveform-1 {
+  animation: waveformWave1 0.7s ease-in-out infinite alternate;
+}
+
+.animate-waveform-2 {
+  animation: waveformWave2 0.9s ease-in-out 0.2s infinite alternate;
+}
+
+.animate-waveform-3 {
+  animation: waveformWave3 0.6s ease-in-out 0.4s infinite alternate;
+}
+
+/* 4. Dots Rhythmic Bounce */
+@keyframes dotBounce1 {
+  0%, 100% { transform: translateY(0px) scale(0.8); opacity: 0.5; }
+  50% { transform: translateY(-4px) scale(1.2); opacity: 1; }
+}
+
+@keyframes dotBounce2 {
+  0%, 100% { transform: translateY(0px) scale(0.8); opacity: 0.5; }
+  50% { transform: translateY(-7px) scale(1.3); opacity: 1; }
+}
+
+@keyframes dotBounce3 {
+  0%, 100% { transform: translateY(0px) scale(0.8); opacity: 0.5; }
+  50% { transform: translateY(-3px) scale(1.1); opacity: 1; }
+}
+
+.animate-dot-1 {
+  animation: dotBounce1 0.6s ease-in-out infinite alternate;
+}
+
+.animate-dot-2 {
+  animation: dotBounce2 0.6s ease-in-out 0.2s infinite alternate;
+}
+
+.animate-dot-3 {
+  animation: dotBounce3 0.6s ease-in-out 0.4s infinite alternate;
+}
+

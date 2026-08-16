@@ -1,0 +1,6 @@
+{
+  "name": "NeoTune Cross Platform",
+  "description": "Global Live Radio & Podcast Streamer featuring 50,000+ live stations, iTunes podcasts, 8-band audio visualizer, EQ presets, recurring radio alarms, sleep timer, car mode, Firebase authentication, Remote Config curation, and cross-device cloud sync.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

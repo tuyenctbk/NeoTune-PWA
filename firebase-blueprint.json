@@ -1,0 +1,74 @@
+{
+  "entities": {
+    "UserProfile": {
+      "collection": "users",
+      "fields": {
+        "userId": { "type": "string", "description": "Unique Firebase Auth UID" },
+        "email": { "type": "string", "description": "User email address" },
+        "displayName": { "type": "string", "description": "User display name" },
+        "photoURL": { "type": "string", "description": "Avatar photo URL" },
+        "theme": { "type": "string", "description": "Selected theme preset" },
+        "language": { "type": "string", "description": "Selected i18n language code" },
+        "audioQuality": { "type": "string", "description": "Streaming audio quality preference" },
+        "updatedAt": { "type": "number", "description": "Timestamp of last update" }
+      }
+    },
+    "UserFavorites": {
+      "collection": "users/{userId}/favorites",
+      "fields": {
+        "stationId": { "type": "string", "description": "Unique station identifier" },
+        "name": { "type": "string", "description": "Radio station name" },
+        "url": { "type": "string", "description": "Stream URL" },
+        "favicon": { "type": "string", "description": "Station logo URL" },
+        "country": { "type": "string", "description": "Country of origin" },
+        "tags": { "type": "array", "description": "Genre tags" },
+        "addedAt": { "type": "number", "description": "Timestamp added" }
+      }
+    },
+    "UserAlarms": {
+      "collection": "users/{userId}/alarms",
+      "fields": {
+        "id": { "type": "string", "description": "Unique alarm ID" },
+        "time": { "type": "string", "description": "Alarm time format HH:mm" },
+        "days": { "type": "array", "description": "Recurring days of week [0-6]" },
+        "stationId": { "type": "string", "description": "Station ID to play" },
+        "stationName": { "type": "string", "description": "Station name" },
+        "stationUrl": { "type": "string", "description": "Station stream URL" },
+        "enabled": { "type": "boolean", "description": "Alarm active status" },
+        "volume": { "type": "number", "description": "Target alarm volume" },
+        "fcmEnabled": { "type": "boolean", "description": "Whether FCM background notification is active" }
+      }
+    },
+    "UserRecents": {
+      "collection": "users/{userId}/recents",
+      "fields": {
+        "stationId": { "type": "string", "description": "Station ID" },
+        "name": { "type": "string", "description": "Station name" },
+        "url": { "type": "string", "description": "Stream URL" },
+        "favicon": { "type": "string", "description": "Station logo URL" },
+        "country": { "type": "string", "description": "Country of origin" },
+        "tags": { "type": "array", "description": "Genre tags" },
+        "playedAt": { "type": "number", "description": "Timestamp of playback" }
+      }
+    },
+    "RemoteConfigContent": {
+      "collection": "remote_config",
+      "fields": {
+        "trendingStations": { "type": "array", "description": "Dynamically promoted radio stations" },
+        "featuredPodcasts": { "type": "array", "description": "Dynamically promoted podcast feeds" },
+        "announcementBanner": { "type": "string", "description": "Optional dynamic cloud announcement" },
+        "updatedAt": { "type": "number", "description": "Last remote config update time" }
+      }
+    },
+    "UserPodcastProgress": {
+      "collection": "users/{userId}/podcastProgress",
+      "fields": {
+        "stationIdOrUrl": { "type": "string", "description": "Unique episode audio URL or identifier" },
+        "positionMs": { "type": "number", "description": "Playback position in milliseconds" },
+        "durationMs": { "type": "number", "description": "Total duration in milliseconds" },
+        "episodeTitle": { "type": "string", "description": "Episode title" },
+        "lastPlayedTimestamp": { "type": "number", "description": "Timestamp of last playback update" }
+      }
+    }
+  }
+}

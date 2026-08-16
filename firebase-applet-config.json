@@ -1,0 +1,11 @@
+{
+  "projectId": "sentry-hub",
+  "appId": "1:770166560462:web:260911451b591a00a9229f",
+  "apiKey": "AIzaSyB6PynYEm0VVQEkcxcgtcgUcH1Z9Dzp_KA",
+  "authDomain": "sentry-hub.firebaseapp.com",
+  "firestoreDatabaseId": "",
+  "storageBucket": "sentry-hub.firebasestorage.app",
+  "messagingSenderId": "770166560462",
+  "measurementId": "G-Z9850X9XBN",
+  "recaptchaSiteKey": ""
+}

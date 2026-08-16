@@ -1,0 +1,45 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // User profile and private subcollections
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+
+      match /{allSubcollections=**} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+
+    // Public / Shared Remote Config and curated stations/podcasts
+    match /remote_config/{docId} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+    }
+
+    // Shared Stations Analytics
+    match /shared_stations/{stationId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Community Live Chat for Radio Stations
+    match /station_chats/{stationId}/messages/{messageId} {
+      allow read: if true;
+      allow create: if true;
+      allow update, delete: if isAuthenticated() && request.auth.uid == resource.data.userId;
+    }
+
+    // FCM tokens for push alarm notifications
+    match /fcm_tokens/{tokenId} {
+      allow read, write: if true;
+    }
+  }
+}
