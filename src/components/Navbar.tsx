@@ -567,7 +567,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       </aside>
 
       {/* ----------------- COMPACT TOP HEADER: Visible on Mobile & Tablet (< md screens) ----------------- */}
-      <header className="md:hidden sticky top-0 z-30 w-full bg-[var(--surface-main)]/90 backdrop-blur-2xl border-b border-[var(--border-color)] shadow-lg shadow-black/20">
+      <header className="md:hidden sticky top-0 z-30 w-full bg-[var(--surface-main)]/90 backdrop-blur-2xl border-b border-[var(--border-color)] shadow-lg shadow-black/20 pt-safe">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-2 sm:gap-4">
           
           {/* Left Logo */}

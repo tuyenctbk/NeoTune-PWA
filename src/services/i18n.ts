@@ -1117,12 +1117,36 @@ class I18nService {
       if (saved && SUPPORTED_LANGUAGES.some(l => l.code === saved)) {
         this.currentLang = saved;
       } else {
-        const browserLang = navigator.language || 'en';
-        const match = SUPPORTED_LANGUAGES.find(l => 
-          l.code === browserLang || browserLang.startsWith(l.code)
-        );
-        if (match) {
-          this.currentLang = match.code;
+        // Auto-detect device language
+        const userLangs = (navigator.languages && navigator.languages.length > 0)
+          ? Array.from(navigator.languages)
+          : [navigator.language || 'en'];
+        
+        let matched = false;
+        for (const userLang of userLangs) {
+          if (!userLang) continue;
+          const clean = userLang.toLowerCase();
+          
+          // Exact match (e.g. 'zh-cn' -> 'zh-CN')
+          const exact = SUPPORTED_LANGUAGES.find(l => l.code.toLowerCase() === clean);
+          if (exact) {
+            this.currentLang = exact.code;
+            matched = true;
+            break;
+          }
+          
+          // Primary language code match (e.g. 'vi-vn' -> 'vi', 'es-es' -> 'es')
+          const primary = clean.split(/[-_]/)[0];
+          const primaryMatch = SUPPORTED_LANGUAGES.find(l => l.code.toLowerCase().split(/[-_]/)[0] === primary);
+          if (primaryMatch) {
+            this.currentLang = primaryMatch.code;
+            matched = true;
+            break;
+          }
+        }
+        
+        if (!matched) {
+          this.currentLang = 'en';
         }
       }
       this.applyDir();

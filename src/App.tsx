@@ -8,7 +8,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { WifiOff, Wifi, X, AlertTriangle, Database, ExternalLink } from 'lucide-react';
 import { Navbar } from './components/Navbar';
 import { MiniPlayer } from './components/MiniPlayer';
-import { AudioDebuggerHUD } from './components/AudioDebuggerHUD';
 import { FullPlayerModal } from './components/FullPlayerModal';
 import { CarModeView } from './components/CarModeView';
 import { ScreensaverView } from './components/ScreensaverView';
@@ -527,8 +526,24 @@ export default function App() {
     // Increment session counter
     storageService.incrementSessionCount();
 
-    // Fetch list of countries
-    apiService.getCountries().then(setCountries);
+    // Fetch list of countries & auto-detect default device country area
+    apiService.getCountries().then((fetchedCountries) => {
+      setCountries(fetchedCountries);
+      
+      // Auto-detect country/area if none selected yet
+      if (!selectedCountryName && typeof window !== 'undefined') {
+        const locale = navigator.language || (navigator.languages && navigator.languages[0]) || '';
+        const parts = locale.split(/[-_]/);
+        const detectedCode = parts.length > 1 ? parts[1].toUpperCase() : '';
+        if (detectedCode) {
+          const match = fetchedCountries.find(c => c.code.toUpperCase() === detectedCode);
+          if (match) {
+            setSelectedCountryCode(match.code);
+            setSelectedCountryName(match.name);
+          }
+        }
+      }
+    });
 
     // Fetch initial default radio stations
     const urlParams = new URLSearchParams(window.location.search);
@@ -886,9 +901,6 @@ export default function App() {
         onOpenSleepTimer={() => setIsSleepTimerOpen(true)}
         onOpenShare={handleOpenShareWithStation}
       />
-
-      {/* Diagnostics HUD Overlay */}
-      <AudioDebuggerHUD />
 
       {/* Full Screen Audiophile Player Modal */}
       <FullPlayerModal

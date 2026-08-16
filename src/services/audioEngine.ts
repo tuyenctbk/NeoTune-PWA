@@ -1227,21 +1227,21 @@ class AudioEngine {
       // Route stream through CORS-compliant Proxy Relay for Mobile Chrome & HTTPS environments
       let targetUrl = station.streamUrl;
       const isHls = station.streamUrl.toLowerCase().includes('.m3u8');
-      const isMobileOrHttps = typeof window !== 'undefined' && (
-        window.location.protocol === 'https:' ||
-        /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
+      const isCapacitor = typeof window !== 'undefined' && (
+        !!(window as any).Capacitor ||
+        window.location.protocol === 'file:' ||
+        (window.location.hostname === 'localhost' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent))
       );
       const isDataSaverActive = this.dataSaverBitrate !== 'auto';
 
-      // HLS streams with CORS support should be loaded directly to allow Hls.js/Safari native chunk parsing
-      if (isHls && targetUrl.startsWith('https://')) {
+      // Native Capacitor apps or HLS streams load direct stream URLs natively
+      if (isCapacitor || isHls || targetUrl.startsWith('https://')) {
         targetUrl = station.streamUrl;
-      } else if (isMobileOrHttps || isDataSaverActive || !targetUrl.startsWith('https://')) {
-        targetUrl = `/api/stream/proxy?url=${encodeURIComponent(station.streamUrl)}`;
-        if (isDataSaverActive) {
-          targetUrl += `&maxBitrate=${this.dataSaverBitrate}`;
-          diagnosticsService.log('info', 'stream', `Data Saver active (${this.dataSaverBitrate}kbps cap): routing via bitrate limited relay`, undefined, targetUrl);
-        }
+      } else if (isDataSaverActive) {
+        targetUrl = `/api/stream/proxy?url=${encodeURIComponent(station.streamUrl)}&maxBitrate=${this.dataSaverBitrate}`;
+        diagnosticsService.log('info', 'stream', `Data Saver active (${this.dataSaverBitrate}kbps cap): routing via bitrate limited relay`, undefined, targetUrl);
+      } else {
+        targetUrl = station.streamUrl;
       }
 
       await this.clearActivePlayPromise();

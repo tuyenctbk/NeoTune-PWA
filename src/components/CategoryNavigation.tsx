@@ -1,5 +1,5 @@
 import React from 'react';
-import { Music, Newspaper, Headphones, Zap, Guitar, Sparkles, Radio, Cloud, X } from 'lucide-react';
+import { Music, Newspaper, Headphones, Zap, Guitar, Sparkles, Radio } from 'lucide-react';
 import { triggerHaptic } from '../utils/haptics';
 
 interface CategoryNavigationProps {
@@ -29,44 +29,27 @@ export const CategoryNavigation: React.FC<CategoryNavigationProps> = ({
   };
 
   return (
-    <div className={`sticky top-[56px] sm:top-[64px] md:top-2 z-20 bg-[var(--bg-main)]/95 backdrop-blur-xl py-2.5 -mx-3 px-3 border-b border-white/5 shadow-md shadow-black/5 transition-all duration-300 space-y-1.5 ${className}`}>
-      <div className="flex items-center justify-between text-[11px] text-[var(--text-muted)] px-1">
-        <div className="flex items-center gap-2">
-          <span className="font-semibold uppercase tracking-wider text-[10px] hidden sm:inline-block">Category & Genre Navigation</span>
-          {activeTag !== 'All' && activeTag !== 'All Genres' && (
-            <button
-              onClick={() => {
-                triggerHaptic('light');
-                onSelectTag('All');
-              }}
-              className="flex items-center gap-1 text-[10px] text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 px-2 py-0.5 rounded-full border border-rose-500/20 font-medium transition-colors cursor-pointer"
-            >
-              <span>Clear Filter ({activeTag})</span>
-              <X className="w-3 h-3" />
-            </button>
-          )}
-        </div>
-        {isRemoteTags && (
-          <span className="flex items-center gap-1 text-[10px] text-cyan-400 font-medium shrink-0">
-            <Cloud className="w-3 h-3 text-cyan-400" />
-            <span className="hidden sm:inline">Firebase Synced</span>
-          </span>
-        )}
-      </div>
-
+    <div className={`sticky top-[56px] sm:top-[64px] md:top-2 z-20 bg-[var(--bg-main)]/95 backdrop-blur-xl py-2 -mx-3 px-3 border-b border-white/5 shadow-md shadow-black/5 transition-all duration-300 ${className}`}>
       {/* Horizontal Scroll Chip List */}
       <div className="flex items-center gap-2 overflow-x-auto pb-1.5 no-scrollbar scroll-smooth">
         {tags.map((tag) => {
-          const isSelected = activeTag === tag || (tag === 'All' && activeTag === 'All Genres');
+          const isSelected = activeTag === tag || ((tag === 'All' || tag === 'All Genres') && (activeTag === 'All Genres' || activeTag === 'All'));
           const IconComp = getTagIcon(tag);
+
+          const handleClick = () => {
+            triggerHaptic('selection');
+            if (isSelected && tag !== 'All' && tag !== 'All Genres') {
+              // Clicked selected genre chip again -> toggle/unselect back to All Genres
+              onSelectTag('All Genres');
+            } else {
+              onSelectTag(tag === 'All' ? 'All Genres' : tag);
+            }
+          };
 
           return (
             <button
               key={`cat_chip_${tag}`}
-              onClick={() => {
-                triggerHaptic('selection');
-                onSelectTag(tag === 'All' ? 'All' : tag);
-              }}
+              onClick={handleClick}
               className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all cursor-pointer shrink-0 ${
                 isSelected
                   ? 'bg-[var(--accent-primary)] text-black shadow-md shadow-[var(--accent-primary)]/20 scale-102 font-black ring-2 ring-white/20'

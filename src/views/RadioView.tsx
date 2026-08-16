@@ -656,67 +656,7 @@ export const RadioView: React.FC<RadioViewProps> = ({
         id="master-catalog-fragment"
         className="lg:col-span-7 xl:col-span-8 space-y-6 pb-28 min-w-0"
       >
-        {/* Primary Section Switcher Tabs: All Stations, Popular/Trending (Firebase), Recommended */}
-        {storageService.getShowRadioTabs() && (
-          <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-[var(--surface-main)]/80 backdrop-blur-xl border border-[var(--border-color)] overflow-x-auto no-scrollbar shadow-lg shadow-black/20">
-          <button
-            onClick={() => {
-              triggerHaptic('selection');
-              setActiveMainTab('all');
-            }}
-            className={`flex-1 min-w-0 flex items-center justify-center gap-1.5 py-2.5 px-2 sm:px-4 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              activeMainTab === 'all'
-                ? 'bg-[var(--accent-primary)] text-black shadow-md shadow-[var(--accent-primary)]/20 font-black'
-                : 'text-[var(--text-muted)] hover:text-white hover:bg-white/5'
-            }`}
-          >
-            <Radio className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">
-              <span className="hidden sm:inline">{t('all_stations', 'All Radio Stations')}</span>
-              <span className="sm:hidden">{t('nav_radio', 'All Stations')}</span>
-            </span>
-          </button>
-
-          <button
-            onClick={() => {
-              triggerHaptic('selection');
-              setActiveMainTab('popular');
-            }}
-            className={`flex-1 min-w-0 flex items-center justify-center gap-1.5 py-2.5 px-2 sm:px-4 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              activeMainTab === 'popular'
-                ? 'bg-gradient-to-r from-amber-400 to-rose-400 text-black shadow-md shadow-amber-500/20 font-black'
-                : 'text-[var(--text-muted)] hover:text-amber-300 hover:bg-amber-500/10'
-            }`}
-          >
-            <Flame className="w-3.5 h-3.5 shrink-0 fill-current text-amber-500" />
-            <span className="truncate">
-              <span className="hidden sm:inline">{t('popular_stations', 'Popular & Trending')}</span>
-              <span className="sm:hidden">{t('trending', 'Trending')}</span>
-            </span>
-            <span className="hidden md:inline-block px-1.5 py-0.2 rounded-full bg-black/20 text-[9px] font-bold uppercase border border-black/10 shrink-0">
-              Firebase
-            </span>
-          </button>
-
-          <button
-            onClick={() => {
-              triggerHaptic('selection');
-              setActiveMainTab('recommended');
-            }}
-            className={`flex-1 min-w-0 flex items-center justify-center gap-1.5 py-2.5 px-2 sm:px-4 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              activeMainTab === 'recommended'
-                ? 'bg-gradient-to-r from-indigo-400 to-purple-400 text-black shadow-md shadow-indigo-500/20 font-black'
-                : 'text-[var(--text-muted)] hover:text-indigo-300 hover:bg-indigo-500/10'
-            }`}
-          >
-            <Sparkles className="w-3.5 h-3.5 shrink-0 fill-current text-indigo-400" />
-            <span className="truncate">
-              <span className="hidden sm:inline">{t('recommended', 'AI Recommended')}</span>
-              <span className="sm:hidden">{t('recommended', 'AI Recs')}</span>
-            </span>
-          </button>
-        </div>
-        )}
+        {/* Primary Section Switcher Tabs removed per request */}
 
       {/* Search & Country Bar */}
       <div className="flex flex-col sm:flex-row items-stretch gap-2.5 sm:gap-3">

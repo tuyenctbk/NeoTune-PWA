@@ -18,10 +18,16 @@ export function usePWAInstall() {
   // Detect platform & standalone mode
   useEffect(() => {
     try {
-      // Check if already in standalone / installed mode
+      // Check if running as Capacitor native app, standalone PWA, or native webview wrapper
       let isStandaloneMode = false;
       if (typeof window !== 'undefined') {
-        if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) {
+        const isCapacitor = !!(window as any).Capacitor ||
+          window.location.protocol === 'file:' ||
+          (window.location.hostname === 'localhost' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent));
+
+        if (isCapacitor) {
+          isStandaloneMode = true;
+        } else if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) {
           isStandaloneMode = true;
         } else if ((window.navigator as unknown as { standalone?: boolean })?.standalone === true) {
           isStandaloneMode = true;
