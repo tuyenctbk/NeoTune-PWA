@@ -15,6 +15,13 @@ export const ScreensaverView: React.FC<ScreensaverViewProps> = ({ onClose }) => 
   const [episode, setEpisode] = useState<PodcastEpisode | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [imgError, setImgError] = useState(false);
+
+  const fallbackArt = 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=200&auto=format&fit=crop&q=80';
+
+  useEffect(() => {
+    setImgError(false);
+  }, [station?.id, episode?.id]);
 
   useEffect(() => {
     const unsub = audioEngine.subscribe((state) => {
@@ -88,12 +95,10 @@ export const ScreensaverView: React.FC<ScreensaverViewProps> = ({ onClose }) => 
         {station && (
           <div className="mt-8 flex items-center gap-4 p-4 rounded-2xl bg-zinc-950/80 border border-zinc-900 max-w-md">
             <img
-              src={episode?.artworkUrl || station.imageUrl}
+              src={imgError || (!episode?.artworkUrl && !station.imageUrl) ? fallbackArt : (episode?.artworkUrl || station.imageUrl)}
               alt={station.name}
               className="w-14 h-14 rounded-xl object-cover border border-white/10"
-              onError={(e) => {
-                (e.target as HTMLElement).style.display = 'none';
-              }}
+              onError={() => setImgError(true)}
             />
             <div className="text-left min-w-0 flex-1">
               <div className="text-sm font-bold text-white truncate">

@@ -24,7 +24,6 @@ import { RadioStation, VisualizerSkin } from '../types';
 import { audioEngine } from '../services/audioEngine';
 import { storageService } from '../services/storageService';
 import { VisualizerCanvas } from './VisualizerCanvas';
-import { CommunityLiveChat } from './CommunityLiveChat';
 import { triggerHaptic } from '../utils/haptics';
 
 interface NowPlayingStudioFragmentProps {
@@ -42,7 +41,7 @@ interface NowPlayingStudioFragmentProps {
   suggestedStations?: RadioStation[];
 }
 
-const EQ_QUICK_PRESETS = ['Balanced', 'Bass Boost', 'Vocal', 'Club', 'Treble Boost'];
+const EQ_QUICK_PRESETS = ['Balanced', 'Bass Boost', 'Vocal Focus', 'Electronic', 'Chill Lounge', 'Rock', 'Pop'];
 const VISUALIZER_SKINS: { id: VisualizerSkin; label: string }[] = [
   { id: 'bars', label: 'Bars' },
   { id: 'waveform', label: 'Wave' },
@@ -425,13 +424,6 @@ export const NowPlayingStudioFragment: React.FC<NowPlayingStudioFragmentProps> =
             </div>
           </div>
         </div>
-
-        {/* Real-time Community Station Chat */}
-        {station && (
-          <div className="pt-1">
-            <CommunityLiveChat station={station} />
-          </div>
-        )}
       </div>
 
       {/* Bottom Utility Launcher Bar */}

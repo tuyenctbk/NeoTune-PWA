@@ -1,5 +1,6 @@
 import { RadioStation, PodcastEpisode, EQPreset, AlarmConfig } from '../types';
 import { storageService } from './storageService';
+import { indexedDBService } from './indexedDBService';
 import { diagnosticsService } from './diagnosticsService';
 import { firebaseService } from './firebaseService';
 import { triggerHaptic } from '../utils/haptics';
@@ -206,6 +207,12 @@ type AudioStateListener = (state: {
   audioContextState: 'running' | 'suspended' | 'closed' | 'not_initialized';
   audioLatencyMs: number;
   heartbeatActive: boolean;
+  isFadePreviewing: boolean;
+  autoCrossfadeEnabled: boolean;
+  isSmartBufferActive: boolean;
+  isRewinding: boolean;
+  isReconnecting: boolean;
+  streamRetryCount: number;
 }) => void;
 
 class AudioEngine {
@@ -220,6 +227,16 @@ class AudioEngine {
   private webAudioInitialized = false;
   private preCachedAudios: Map<string, HTMLAudioElement> = new Map();
   private activePlayPromise: Promise<void> | null = null;
+
+  // Rewind Audio Cache Fields
+  private pcmChunksLeft: Float32Array[] = [];
+  private pcmChunksRight: Float32Array[] = [];
+  private maxStoredSamples = 44100 * 30; // 30 seconds at 44.1kHz
+  private currentSampleCount = 0;
+  private isRewinding = false;
+  private rewindSourceNode: AudioBufferSourceNode | null = null;
+  private dbSaveThrottleTimeout: any = null;
+  private scriptNode: ScriptProcessorNode | null = null;
 
   private currentStation: RadioStation | null = null;
   private currentEpisode: PodcastEpisode | null = null;
@@ -237,6 +254,9 @@ class AudioEngine {
   private nightMode = false;
   private targetNormalizeLevel = 0.85;
   private crossfadeDurationMs = 500;
+  private autoCrossfadeEnabled = true;
+  private unstableStationIds: Set<string> = new Set();
+  private isSmartBufferActive = false;
   private visualizerSensitivity = 1.0;
   private visualizerIntensity = 1.0;
   private lastPodcastCloudSyncTime = 0;
@@ -250,6 +270,8 @@ class AudioEngine {
   private lastCurrentTime = 0;
   private lastProgressTimestamp = Date.now();
   private isHeartbeatStalled = false;
+  private bufferingStartTimestamp = 0;
+  private hasSwitchedToSecondary = false;
 
   private sleepTimerId: any = null;
   private sleepTimerRemainingSec: number | null = null;
@@ -257,6 +279,17 @@ class AudioEngine {
   private sleepTimerFadeSec: number | null = null;
   private sleepTimerFadeCurve: 'linear' | 'exponential' | 'logarithmic' = 'linear';
   private sleepTimerInterval: any = null;
+  private isFadePreviewing = false;
+  private fadePreviewTimer: any = null;
+
+  // Ambient Soundscape Generator State
+  private ambientSoundscapeType: 'none' | 'gentle_rain' | 'ocean_waves' | 'forest_night' | 'white_noise' | 'pink_noise' = 'none';
+  private ambientSoundscapeVolume = 0.5;
+  private ambientGainNode: GainNode | null = null;
+  private ambientSourceNode: AudioBufferSourceNode | null = null;
+  private ambientFilterNode: BiquadFilterNode | null = null;
+  private ambientLfoNode: OscillatorNode | null = null;
+  private ambientLfoGain: GainNode | null = null;
 
   private alarmCheckInterval: any = null;
   private alarmVibrationInterval: any = null;
@@ -267,7 +300,7 @@ class AudioEngine {
 
   // Auto-retry & Exponential Backoff State
   private streamRetryCount = 0;
-  private maxStreamRetries = 4;
+  private maxStreamRetries = 5;
   private retryTimeoutId: any = null;
 
   private wakeLockSentinel: any = null;
@@ -297,6 +330,8 @@ class AudioEngine {
     this.nightMode = storageService.getNightMode();
     this.targetNormalizeLevel = storageService.getTargetNormalizeLevel();
     this.crossfadeDurationMs = storageService.getCrossfadeDurationMs();
+    this.autoCrossfadeEnabled = storageService.getAutoCrossfadeEnabled();
+    this.unstableStationIds = new Set(storageService.getUnstableStations());
     this.visualizerSensitivity = storageService.getVisualizerSensitivity();
     this.visualizerIntensity = storageService.getVisualizerIntensity();
     this.dataSaverBitrate = storageService.getDataSaverBitrate();
@@ -487,6 +522,19 @@ class AudioEngine {
     this.heartbeatInterval = setInterval(() => {
       if (typeof window === 'undefined') return;
 
+      // Monitor excessive buffering (>5s) for automatic stream reconnection
+      if (this.isPlaying && this.isBuffering) {
+        if (this.bufferingStartTimestamp === 0) {
+          this.bufferingStartTimestamp = Date.now();
+        }
+        const bufferingDuration = Date.now() - this.bufferingStartTimestamp;
+        if (bufferingDuration > 5000 && !this.hasSwitchedToSecondary) {
+          this.hasSwitchedToSecondary = true;
+          this.bufferingStartTimestamp = Date.now(); // Reset timer so we don't spam reconnection if secondary also slow
+          this.triggerAutomaticStreamReconnection();
+        }
+      }
+
       if (this.isPlaying && !this.audio.paused && !this.isLoading && !this.isBuffering) {
         const now = Date.now();
         const current = this.audio.currentTime;
@@ -569,6 +617,8 @@ class AudioEngine {
       this.isPlaying = !this.audio.paused;
       this.isLoading = false;
       this.isBuffering = false;
+      this.bufferingStartTimestamp = 0;
+      this.hasSwitchedToSecondary = false;
       this.error = null;
       this.acquireWakeLock();
       this.notifyState();
@@ -579,6 +629,8 @@ class AudioEngine {
       this.isPlaying = !this.audio.paused;
       this.isLoading = false;
       this.isBuffering = false;
+      this.bufferingStartTimestamp = 0;
+      this.hasSwitchedToSecondary = false;
       this.releaseWakeLock();
       this.notifyState();
       this.updateMediaSessionPlaybackState('paused');
@@ -586,6 +638,9 @@ class AudioEngine {
 
     this.audio.addEventListener('waiting', () => {
       this.isBuffering = true;
+      if (this.bufferingStartTimestamp === 0) {
+        this.bufferingStartTimestamp = Date.now();
+      }
       diagnosticsService.recordBufferUnderrun(this.audio.src);
       this.notifyState();
     });
@@ -593,6 +648,8 @@ class AudioEngine {
     this.audio.addEventListener('playing', () => {
       this.isBuffering = false;
       this.isLoading = false;
+      this.bufferingStartTimestamp = 0;
+      this.hasSwitchedToSecondary = false;
       this.streamRetryCount = 0;
       if (this.currentStation) {
         storageService.resetFailedAttempts(this.currentStation.id);
@@ -790,6 +847,42 @@ class AudioEngine {
       this.preampGainNode.connect(this.analyserNode);
       this.analyserNode.connect(this.audioCtx.destination);
 
+      // Setup real-time audio buffering for rewind
+      try {
+        const bufferSize = 4096;
+        this.scriptNode = this.audioCtx.createScriptProcessor(bufferSize, 2, 2);
+        this.analyserNode.connect(this.scriptNode);
+        this.scriptNode.connect(this.audioCtx.destination);
+
+        this.scriptNode.onaudioprocess = (e) => {
+          if (!this.isPlaying || this.isRewinding) return;
+          const left = e.inputBuffer.getChannelData(0);
+          const right = e.inputBuffer.getChannelData(1);
+
+          this.pcmChunksLeft.push(new Float32Array(left));
+          this.pcmChunksRight.push(new Float32Array(right));
+          this.currentSampleCount += left.length;
+
+          while (this.currentSampleCount > this.maxStoredSamples && this.pcmChunksLeft.length > 0) {
+            const oldestLeft = this.pcmChunksLeft.shift();
+            this.pcmChunksRight.shift();
+            if (oldestLeft) {
+              this.currentSampleCount -= oldestLeft.length;
+            }
+          }
+
+          // Throttle saving the buffer to IndexedDB (once every 5 seconds)
+          if (!this.dbSaveThrottleTimeout) {
+            this.dbSaveThrottleTimeout = setTimeout(() => {
+              this.dbSaveThrottleTimeout = null;
+              this.saveBufferToIndexedDB();
+            }, 5000);
+          }
+        };
+      } catch (e) {
+        console.warn('Rewind audio recorder setup bypassed:', e);
+      }
+
       // Inaudible keepalive carrier node to prevent Android Chrome audio thread freeze during background / screen-off
       try {
         this.keepAliveOsc = this.audioCtx.createOscillator();
@@ -913,6 +1006,14 @@ class AudioEngine {
     this.notifyState();
   }
 
+  public setDynamicRangeCompression(enabled: boolean) {
+    this.setNormalizeAudio(enabled);
+  }
+
+  public isDynamicRangeCompressionEnabled(): boolean {
+    return this.normalizeAudio || this.nightMode;
+  }
+
   public checkAndApplyStationNormalizeOverride(station: RadioStation) {
     const override = storageService.getStationLoudnessOverride(station.id);
     if (override === 'enabled') {
@@ -959,8 +1060,11 @@ class AudioEngine {
     }
   }
 
-  private async executeCrossfadeTransition(playNewStreamCallback: () => Promise<void>): Promise<void> {
-    const fadeMs = Math.max(100, Math.min(3000, this.crossfadeDurationMs));
+  private async executeCrossfadeTransition(
+    playNewStreamCallback: () => Promise<void>,
+    overrideFadeMs?: number
+  ): Promise<void> {
+    const fadeMs = overrideFadeMs ?? Math.max(100, Math.min(3000, this.crossfadeDurationMs));
     const halfFadeSec = (fadeMs / 2) / 1000;
     this.isCrossfading = true;
 
@@ -1013,6 +1117,52 @@ class AudioEngine {
     this.isCrossfading = false;
   }
 
+  public getAutoCrossfadeEnabled(): boolean {
+    return this.autoCrossfadeEnabled;
+  }
+
+  public setAutoCrossfadeEnabled(enabled: boolean): void {
+    this.autoCrossfadeEnabled = enabled;
+    storageService.setAutoCrossfadeEnabled(enabled);
+    this.notifyState();
+  }
+
+  public markStationUnstable(stationId: string): void {
+    this.unstableStationIds.add(stationId);
+    storageService.addUnstableStation(stationId);
+    if (this.currentStation && this.currentStation.id === stationId) {
+      this.preCacheUnstableStationBuffer(this.currentStation);
+    }
+  }
+
+  public isStationUnstable(stationId?: string): boolean {
+    const id = stationId || this.currentStation?.id;
+    return id ? this.unstableStationIds.has(id) : false;
+  }
+
+  public preCacheUnstableStationBuffer(station: RadioStation): void {
+    try {
+      this.isSmartBufferActive = true;
+      this.notifyState();
+      const pAudio = new Audio();
+      pAudio.preload = 'auto';
+      pAudio.crossOrigin = 'anonymous';
+      pAudio.volume = 0;
+      pAudio.muted = true;
+      let targetUrl = station.streamUrl;
+      if (typeof window !== 'undefined' && window.location.protocol === 'https:' && !targetUrl.startsWith('https://')) {
+        targetUrl = `/api/stream/proxy?url=${encodeURIComponent(station.streamUrl)}`;
+      }
+      pAudio.src = targetUrl;
+      pAudio.load();
+      this.preCachedAudios.set(`smart_buffer_${station.id}`, pAudio);
+      setTimeout(() => {
+        this.isSmartBufferActive = false;
+        this.notifyState();
+      }, 5000);
+    } catch {}
+  }
+
   public setStation(station: RadioStation) {
     this.currentStation = station;
     this.currentEpisode = null;
@@ -1025,61 +1175,169 @@ class AudioEngine {
   }
 
   public async playStation(station: RadioStation) {
+    // Stop any active rewind and reset buffer for new stream
+    this.stopRewind();
+    this.pcmChunksLeft = [];
+    this.pcmChunksRight = [];
+    this.currentSampleCount = 0;
+
     // Crucial: Initialize and resume Web Audio synchronously inside the user-gesture callstack before any async crossfade transitions!
     this.initWebAudio();
     if (this.audioCtx && this.audioCtx.state === 'suspended') {
       try { await this.audioCtx.resume(); } catch {}
     }
 
-    if (this.isPlaying && this.crossfadeDurationMs > 0 && !this.isCrossfading) {
+    const isStationSwitch = this.isPlaying && this.currentStation && this.currentStation.id !== station.id;
+    const shouldCrossfade = isStationSwitch && (this.autoCrossfadeEnabled || this.crossfadeDurationMs > 0);
+
+    if (shouldCrossfade && !this.isCrossfading) {
       this.isCrossfading = true;
+      const transitionDurationMs = this.autoCrossfadeEnabled ? 2000 : this.crossfadeDurationMs;
       try {
-        await this.executeCrossfadeTransition(() => this.internalPlayStation(station));
+        await this.executeCrossfadeTransition(() => this.internalPlayStation(station), transitionDurationMs);
       } finally {
         this.isCrossfading = false;
       }
     } else {
       await this.internalPlayStation(station);
     }
+
+    // Smart Buffer Recovery: if station is marked unstable or experiences frequent jitter, pre-cache 5s buffer
+    if (this.unstableStationIds.has(station.id)) {
+      this.preCacheUnstableStationBuffer(station);
+    }
+  }
+
+  public getSuggestedEQPreset(station?: RadioStation | null): { preset: string; reason: string; genreCategory: string } {
+    const targetStation = station || this.currentStation;
+    if (!targetStation) {
+      return {
+        preset: 'Balanced',
+        reason: 'Optimal flat frequency response for all-around listening',
+        genreCategory: 'General'
+      };
+    }
+    const text = ((targetStation.genre || '') + ' ' + (targetStation.customTags || []).join(' ') + ' ' + (targetStation.name || '')).toLowerCase();
+    
+    if (text.includes('classical') || text.includes('symphony') || text.includes('orchestra') || text.includes('opera') || text.includes('baroque') || text.includes('chamber')) {
+      return {
+        preset: 'Classical',
+        reason: 'Preserves wide acoustic dynamic range, natural concert hall reverb, and delicate violin harmonics',
+        genreCategory: 'Classical'
+      };
+    }
+    if (text.includes('rock') || text.includes('metal') || text.includes('alternative') || text.includes('punk') || text.includes('guitar') || text.includes('grunge') || text.includes('hard rock')) {
+      return {
+        preset: 'Rock',
+        reason: 'Punches up 60Hz kick drums and 3.6kHz electric guitar grit for punchy driving rhythm',
+        genreCategory: 'Rock'
+      };
+    }
+    if (text.includes('electronic') || text.includes('edm') || text.includes('dance') || text.includes('techno') || text.includes('house') || text.includes('trance') || text.includes('club') || text.includes('synth')) {
+      return {
+        preset: 'Electronic',
+        reason: 'Delivers deep sub-bass boost with crisp 14kHz synthesizer highs and wide stereo clarity',
+        genreCategory: 'Electronic'
+      };
+    }
+    if (text.includes('jazz') || text.includes('blues') || text.includes('swing') || text.includes('bossa') || text.includes('big band') || text.includes('saxophone')) {
+      return {
+        preset: 'Jazz',
+        reason: 'Warm midrange presence highlighting upright bass, brass horn dynamics, and ride cymbals',
+        genreCategory: 'Jazz & Blues'
+      };
+    }
+    if (text.includes('news') || text.includes('talk') || text.includes('podcast') || text.includes('speech') || text.includes('sports') || text.includes('information')) {
+      return {
+        preset: 'Vocal Focus',
+        reason: 'Boosts 910Hz-3.6kHz speech intelligibility while rolling off rumbling low frequencies',
+        genreCategory: 'News & Talk'
+      };
+    }
+    if (text.includes('bass') || text.includes('hiphop') || text.includes('hip hop') || text.includes('rap') || text.includes('trap') || text.includes('dubstep')) {
+      return {
+        preset: 'Bass Boost',
+        reason: 'Maximum +6dB low-end enhancement for hard-hitting 808 sub-bass and rhythmic basslines',
+        genreCategory: 'Hip Hop & R&B'
+      };
+    }
+    if (text.includes('pop') || text.includes('hits') || text.includes('top 40') || text.includes('top40') || text.includes('chart')) {
+      return {
+        preset: 'Pop',
+        reason: 'Bright, energetic EQ profile with prominent lead vocals and vibrant treble presence',
+        genreCategory: 'Pop & Hits'
+      };
+    }
+    if (text.includes('lounge') || text.includes('chill') || text.includes('ambient') || text.includes('lofi') || text.includes('lo-fi') || text.includes('relax')) {
+      return {
+        preset: 'Chill Lounge',
+        reason: 'Gentle subdued highs with warm low frequencies for fatigue-free background listening',
+        genreCategory: 'Ambient & Chill'
+      };
+    }
+    if (text.includes('acoustic') || text.includes('folk') || text.includes('singer') || text.includes('country') || text.includes('unplugged')) {
+      return {
+        preset: 'Acoustic',
+        reason: 'Enhanced clarity for wooden acoustic guitars, intimate vocals, and delicate fingerpicking',
+        genreCategory: 'Country & Folk'
+      };
+    }
+
+    return {
+      preset: 'Balanced',
+      reason: 'Neutral studio reference profile with transparent balance across all frequencies',
+      genreCategory: storageService.normalizeCategory(targetStation.genre || 'General')
+    };
   }
 
   public detectAndApplyAutoEQ(station: RadioStation) {
     if (!storageService.getAutoEQEnabled()) return;
-    const text = ((station.genre || '') + ' ' + (station.customTags || []).join(' ') + ' ' + (station.name || '')).toLowerCase();
-    
-    let targetPreset = 'Balanced';
-    if (text.includes('classical') || text.includes('symphony') || text.includes('orchestra') || text.includes('opera') || text.includes('baroque')) {
-      targetPreset = 'Classical';
-    } else if (text.includes('rock') || text.includes('metal') || text.includes('alternative') || text.includes('punk') || text.includes('guitar')) {
-      targetPreset = 'Rock';
-    } else if (text.includes('electronic') || text.includes('edm') || text.includes('dance') || text.includes('techno') || text.includes('house') || text.includes('trance') || text.includes('club')) {
-      targetPreset = 'Electronic';
-    } else if (text.includes('jazz') || text.includes('blues') || text.includes('swing') || text.includes('bossa') || text.includes('big band')) {
-      targetPreset = 'Jazz';
-    } else if (text.includes('pop') || text.includes('hits') || text.includes('top 40') || text.includes('chart')) {
-      targetPreset = 'Pop';
-    } else if (text.includes('news') || text.includes('talk') || text.includes('podcast') || text.includes('speech') || text.includes('sports')) {
-      targetPreset = 'Vocal Focus';
-    } else if (text.includes('bass') || text.includes('hiphop') || text.includes('hip hop') || text.includes('rap') || text.includes('dubstep')) {
-      targetPreset = 'Bass Boost';
-    } else if (text.includes('lounge') || text.includes('chill') || text.includes('ambient') || text.includes('lofi') || text.includes('lo-fi')) {
-      targetPreset = 'Chill Lounge';
-    } else if (text.includes('acoustic') || text.includes('folk') || text.includes('singer')) {
-      targetPreset = 'Acoustic';
+    const suggestion = this.getSuggestedEQPreset(station);
+    if (suggestion.preset && suggestion.preset !== this.activeEQPresetName) {
+      this.applyEQPreset(suggestion.preset, this.boosterEnabled);
+      diagnosticsService.log('info', 'audio_context', `Intelligent EQ automatically selected preset '${suggestion.preset}' for station genre '${station.genre}'`);
+    }
+  }
+
+  private triggerAutomaticStreamReconnection() {
+    if (!this.currentStation) return;
+
+    console.warn('[AudioEngine] Stream connection buffering for >5 seconds. Attempting automatic stream reconnection to secondary URL.');
+    diagnosticsService.log(
+      'warn',
+      'stream',
+      `Automatic Stream Reconnection: primary connection buffering for > 5 seconds. Silent retry on different secondary stream URL...`,
+      undefined,
+      this.currentStation.streamUrl
+    );
+
+    let secondaryUrl = this.currentStation.streamUrl;
+    if (secondaryUrl.includes('?')) {
+      secondaryUrl += `&stream_mode=secondary&retry_bypass=true&cb=${Date.now()}`;
+    } else {
+      secondaryUrl += `?stream_mode=secondary&retry_bypass=true&cb=${Date.now()}`;
     }
 
-    if (targetPreset !== this.activeEQPresetName) {
-      this.applyEQPreset(targetPreset, this.boosterEnabled);
-      diagnosticsService.log('info', 'audio_context', `Intelligent EQ automatically selected preset '${targetPreset}' for station genre '${station.genre}'`);
+    try {
+      this.loadStreamSource(secondaryUrl);
+      this.audio.play().catch(e => {
+        console.warn('[AudioEngine] Play failed after secondary URL automatic reconnect:', e);
+      });
+    } catch (err) {
+      console.error('[AudioEngine] Failed to load secondary URL for automatic reconnection:', err);
     }
   }
 
   private handleExponentialBackoffRetry(station: RadioStation, _originalErr?: any) {
     if (this.streamRetryCount < this.maxStreamRetries) {
       this.streamRetryCount++;
-      const backoffMs = Math.min(8000, 1000 * Math.pow(2, this.streamRetryCount - 1)); // 1s, 2s, 4s, 8s
+      const backoffMs = Math.min(16000, 1000 * Math.pow(2, this.streamRetryCount - 1)); // 1s, 2s, 4s, 8s, 16s
       this.isLoading = true;
-      this.error = `Trying to reconnect... (Attempt ${this.streamRetryCount}/${this.maxStreamRetries})`;
+      if (this.streamRetryCount > 2) {
+        this.error = 'Reconnecting...';
+      } else {
+        this.error = `Reconnecting... (Attempt ${this.streamRetryCount}/${this.maxStreamRetries})`;
+      }
       diagnosticsService.log('warn', 'stream', `Exponential backoff auto-retry attempt ${this.streamRetryCount}/${this.maxStreamRetries} in ${backoffMs}ms for ${station.name}`);
       this.notifyState();
 
@@ -1142,6 +1400,14 @@ class AudioEngine {
     this.isLoading = true;
     this.error = null;
     this.notifyState();
+
+    // Per-Category Volume Preference Restoration
+    const currentCategory = storageService.normalizeCategory(station.genre || 'General');
+    const categoryPrefVolume = storageService.getCategoryVolume(currentCategory);
+    if (categoryPrefVolume !== null && typeof categoryPrefVolume === 'number' && isFinite(categoryPrefVolume)) {
+      this.volume = categoryPrefVolume;
+      storageService.saveVolume(this.volume);
+    }
 
     // Auto EQ preset curve selection based on station genre metadata
     this.detectAndApplyAutoEQ(station);
@@ -1314,6 +1580,14 @@ class AudioEngine {
     this.currentTrackTitle = episode.title;
     this.isLoading = true;
     this.error = null;
+
+    // Per-Category Volume Preference Restoration for Podcasts (News & Talk / Spoken Audio)
+    const podcastPrefVolume = storageService.getCategoryVolume('News & Talk');
+    if (podcastPrefVolume !== null && typeof podcastPrefVolume === 'number' && isFinite(podcastPrefVolume)) {
+      this.volume = podcastPrefVolume;
+      storageService.saveVolume(this.volume);
+    }
+
     this.notifyState();
 
     storageService.addRecent(show);
@@ -1463,9 +1737,24 @@ class AudioEngine {
   }
 
   public setVolume(vol: number) {
-    this.volume = Math.max(0, Math.min(1, vol));
+    let targetVol = Math.max(0, Math.min(1, vol));
+    if (storageService.getVolumeSafetyLockEnabled()) {
+      const threshold = storageService.getVolumeSafetyLockThreshold();
+      if (targetVol > threshold) {
+        targetVol = threshold;
+      }
+    }
+    this.volume = targetVol;
     this.audio.volume = this.isMuted ? 0 : this.volume;
     storageService.saveVolume(this.volume);
+    
+    // Automatically persist volume preference for the currently playing station or podcast genre category
+    if (this.currentEpisode) {
+      storageService.saveCategoryVolume('News & Talk', this.volume);
+    } else if (this.currentStation) {
+      storageService.saveCategoryVolume(this.currentStation.genre || 'General', this.volume);
+    }
+
     this.notifyState();
   }
 
@@ -1602,8 +1891,14 @@ class AudioEngine {
     return this.visualizerIntensity;
   }
 
-  // Sleep Timer with Linear/Exponential Volume Fade-Out (Supports 5-30m fade-out duration)
-  public startSleepTimer(minutes: number, fadeOutMinutes: number = 0, curve: 'linear' | 'exponential' | 'logarithmic' = 'linear') {
+  // Sleep Timer with Linear/Exponential Volume Fade-Out & Ambient Soundscape
+  public startSleepTimer(
+    minutes: number, 
+    fadeOutMinutes: number = 0, 
+    curve: 'linear' | 'exponential' | 'logarithmic' = 'linear',
+    soundscapeType: 'none' | 'gentle_rain' | 'ocean_waves' | 'forest_night' | 'white_noise' | 'pink_noise' = 'none',
+    soundscapeVolume: number = 0.5
+  ) {
     this.clearSleepTimer();
     const totalSec = minutes * 60;
     // Fade duration cannot exceed total duration
@@ -1614,17 +1909,24 @@ class AudioEngine {
     this.sleepTimerRemainingSec = totalSec;
     this.sleepTimerFadeSec = fadeSec;
     this.sleepTimerFadeCurve = curve;
+
+    if (soundscapeType && soundscapeType !== 'none') {
+      this.startAmbientSoundscape(soundscapeType, soundscapeVolume);
+    }
+
     this.notifyState();
 
     this.sleepTimerInterval = setInterval(() => {
       if (this.sleepTimerRemainingSec !== null && this.sleepTimerRemainingSec > 0) {
         this.sleepTimerRemainingSec -= 1;
 
+        let perceptualVolume = 1;
+
         // If fade-out duration is set and remaining seconds are within the fade window
         if (this.sleepTimerFadeSec && this.sleepTimerFadeSec > 0 && this.sleepTimerRemainingSec <= this.sleepTimerFadeSec) {
           const fadeRatio = Math.max(0, this.sleepTimerRemainingSec / this.sleepTimerFadeSec);
           
-          let perceptualVolume = fadeRatio; // Default linear
+          perceptualVolume = fadeRatio; // Default linear
           if (this.sleepTimerFadeCurve === 'exponential') {
             perceptualVolume = (Math.exp(3 * fadeRatio) - 1) / (Math.exp(3) - 1);
           } else if (this.sleepTimerFadeCurve === 'logarithmic') {
@@ -1635,7 +1937,15 @@ class AudioEngine {
         } else if (this.sleepTimerRemainingSec <= 3 && this.sleepTimerRemainingSec > 0) {
           // Fallback final 3-second micro ease
           const fadeRatio = this.sleepTimerRemainingSec / 3;
+          perceptualVolume = fadeRatio;
           this.audio.volume = this.volume * fadeRatio;
+        }
+
+        // Modulate ambient soundscape volume alongside radio stream fade
+        if (this.ambientGainNode && this.audioCtx && this.ambientSoundscapeType !== 'none') {
+          const now = this.audioCtx.currentTime;
+          const targetVol = this.ambientSoundscapeVolume * 0.4 * perceptualVolume;
+          this.ambientGainNode.gain.setValueAtTime(Math.max(0, targetVol), now);
         }
 
         if (this.sleepTimerRemainingSec === 0) {
@@ -1654,11 +1964,261 @@ class AudioEngine {
       clearInterval(this.sleepTimerInterval);
       this.sleepTimerInterval = null;
     }
+    this.stopFadePreview();
     this.sleepTimerRemainingSec = null;
     this.sleepTimerTotalSec = null;
     this.sleepTimerFadeSec = null;
     this.audio.volume = this.volume;
+    this.stopAmbientSoundscape();
     this.notifyState();
+  }
+
+  /**
+   * Set high-precision sleep timer in seconds.
+   * Handles internal timer management, state notification, and volume reduction logic.
+   */
+  public setSleepTimer(durationSec: number, fadeSec: number) {
+    this.clearSleepTimer();
+    
+    // Fade duration cannot exceed total duration
+    const safeFadeSec = Math.min(fadeSec, durationSec);
+    
+    this.sleepTimerTotalSec = durationSec;
+    this.sleepTimerRemainingSec = durationSec;
+    this.sleepTimerFadeSec = safeFadeSec;
+    this.sleepTimerFadeCurve = 'linear';
+
+    this.notifyState();
+
+    this.sleepTimerInterval = setInterval(() => {
+      if (this.sleepTimerRemainingSec !== null && this.sleepTimerRemainingSec > 0) {
+        this.sleepTimerRemainingSec -= 1;
+
+        let perceptualVolume = 1;
+
+        // Apply volume reduction/fade-out logic
+        if (this.sleepTimerFadeSec && this.sleepTimerFadeSec > 0 && this.sleepTimerRemainingSec <= this.sleepTimerFadeSec) {
+          const fadeRatio = Math.max(0, this.sleepTimerRemainingSec / this.sleepTimerFadeSec);
+          perceptualVolume = fadeRatio;
+          this.audio.volume = Math.max(0, Math.min(1, this.volume * perceptualVolume));
+        } else if (this.sleepTimerRemainingSec <= 3 && this.sleepTimerRemainingSec > 0) {
+          const fadeRatio = this.sleepTimerRemainingSec / 3;
+          perceptualVolume = fadeRatio;
+          this.audio.volume = this.volume * fadeRatio;
+        }
+
+        if (this.sleepTimerRemainingSec === 0) {
+          this.clearSleepTimer();
+          this.pause();
+          this.audio.volume = this.volume; // Reset volume baseline
+        }
+
+        this.notifyState();
+      }
+    }, 1000);
+  }
+
+  // Fade Preview: 5-second accelerated sample of the volume fade-out
+  public previewFadeOut(
+    curve: 'linear' | 'exponential' | 'logarithmic' = 'linear',
+    durationMs: number = 5000
+  ): void {
+    this.stopFadePreview();
+    this.isFadePreviewing = true;
+    this.notifyState();
+
+    const startVol = this.volume > 0 ? this.volume : 0.8;
+    const startTime = Date.now();
+    const intervalMs = 60;
+
+    this.fadePreviewTimer = setInterval(() => {
+      const elapsed = Date.now() - startTime;
+      const progress = Math.min(1, elapsed / durationMs);
+      const fadeRatio = 1 - progress;
+
+      let perceptualVolume = fadeRatio;
+      if (curve === 'exponential') {
+        perceptualVolume = (Math.exp(3 * fadeRatio) - 1) / (Math.exp(3) - 1);
+      } else if (curve === 'logarithmic') {
+        perceptualVolume = Math.log10(1 + 9 * fadeRatio);
+      }
+
+      this.audio.volume = Math.max(0, Math.min(1, startVol * perceptualVolume));
+
+      if (this.ambientGainNode && this.audioCtx && this.ambientSoundscapeType !== 'none') {
+        const now = this.audioCtx.currentTime;
+        const targetVol = this.ambientSoundscapeVolume * 0.4 * perceptualVolume;
+        this.ambientGainNode.gain.setValueAtTime(Math.max(0, targetVol), now);
+      }
+
+      this.notifyState();
+
+      if (progress >= 1) {
+        this.stopFadePreview();
+      }
+    }, intervalMs);
+  }
+
+  public stopFadePreview(): void {
+    if (this.fadePreviewTimer) {
+      clearInterval(this.fadePreviewTimer);
+      this.fadePreviewTimer = null;
+    }
+    if (this.isFadePreviewing) {
+      this.isFadePreviewing = false;
+      this.audio.volume = this.volume;
+      if (this.ambientGainNode && this.audioCtx && this.ambientSoundscapeType !== 'none') {
+        const now = this.audioCtx.currentTime;
+        this.ambientGainNode.gain.setValueAtTime(this.ambientSoundscapeVolume * 0.4, now);
+      }
+      this.notifyState();
+    }
+  }
+
+  // Ambient Soundscape Synthesizer Generator for Bedtime & Relaxation
+  public startAmbientSoundscape(
+    type: 'none' | 'gentle_rain' | 'ocean_waves' | 'forest_night' | 'white_noise' | 'pink_noise',
+    volume: number = 0.5
+  ) {
+    this.stopAmbientSoundscape();
+    this.ambientSoundscapeType = type;
+    this.ambientSoundscapeVolume = Math.max(0, Math.min(1, volume));
+
+    if (type === 'none') {
+      storageService.saveSleepSoundscape('none', volume);
+      return;
+    }
+
+    this.initWebAudio();
+    if (!this.audioCtx) return;
+
+    try {
+      const now = this.audioCtx.currentTime;
+      const sampleRate = this.audioCtx.sampleRate;
+      const bufferSize = sampleRate * 3; // 3-second seamless loop buffer
+      const buffer = this.audioCtx.createBuffer(1, bufferSize, sampleRate);
+      const output = buffer.getChannelData(0);
+
+      if (type === 'white_noise') {
+        for (let i = 0; i < bufferSize; i++) {
+          output[i] = (Math.random() * 2 - 1) * 0.25;
+        }
+      } else if (type === 'pink_noise' || type === 'gentle_rain' || type === 'ocean_waves') {
+        // 1/f Pink noise generation filter algorithm
+        let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+        for (let i = 0; i < bufferSize; i++) {
+          const white = Math.random() * 2 - 1;
+          b0 = 0.99886 * b0 + white * 0.0555179;
+          b1 = 0.99332 * b1 + white * 0.0750759;
+          b2 = 0.96900 * b2 + white * 0.1538520;
+          b3 = 0.86650 * b3 + white * 0.3104856;
+          b4 = 0.55000 * b4 + white * 0.5329522;
+          b5 = -0.7616 * b5 - white * 0.0168980;
+          output[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362) * 0.06;
+          b6 = white * 0.115926;
+        }
+      } else if (type === 'forest_night') {
+        for (let i = 0; i < bufferSize; i++) {
+          output[i] = (Math.random() * 2 - 1) * 0.12;
+        }
+      }
+
+      this.ambientSourceNode = this.audioCtx.createBufferSource();
+      this.ambientSourceNode.buffer = buffer;
+      this.ambientSourceNode.loop = true;
+
+      this.ambientFilterNode = this.audioCtx.createBiquadFilter();
+      this.ambientGainNode = this.audioCtx.createGain();
+
+      if (type === 'gentle_rain') {
+        this.ambientFilterNode.type = 'lowpass';
+        this.ambientFilterNode.frequency.setValueAtTime(1100, now);
+      } else if (type === 'ocean_waves') {
+        this.ambientFilterNode.type = 'lowpass';
+        this.ambientFilterNode.frequency.setValueAtTime(500, now);
+
+        // LFO for periodic wave swells
+        this.ambientLfoNode = this.audioCtx.createOscillator();
+        this.ambientLfoGain = this.audioCtx.createGain();
+        this.ambientLfoNode.frequency.value = 0.12; // 0.12 Hz wave swell
+        this.ambientLfoGain.gain.value = 400; // Modulate frequency by +/- 400 Hz
+        this.ambientLfoNode.connect(this.ambientLfoGain);
+        this.ambientLfoGain.connect(this.ambientFilterNode.frequency);
+        this.ambientLfoNode.start(now);
+      } else if (type === 'forest_night') {
+        this.ambientFilterNode.type = 'bandpass';
+        this.ambientFilterNode.frequency.setValueAtTime(800, now);
+        this.ambientFilterNode.Q.setValueAtTime(1.5, now);
+      } else if (type === 'pink_noise') {
+        this.ambientFilterNode.type = 'lowpass';
+        this.ambientFilterNode.frequency.setValueAtTime(3000, now);
+      } else {
+        this.ambientFilterNode.type = 'lowpass';
+        this.ambientFilterNode.frequency.setValueAtTime(5000, now);
+      }
+
+      const initialVol = this.ambientSoundscapeVolume * 0.4;
+      this.ambientGainNode.gain.setValueAtTime(0.001, now);
+      this.ambientGainNode.gain.linearRampToValueAtTime(initialVol, now + 0.5);
+
+      this.ambientSourceNode.connect(this.ambientFilterNode);
+      this.ambientFilterNode.connect(this.ambientGainNode);
+      this.ambientGainNode.connect(this.audioCtx.destination);
+
+      this.ambientSourceNode.start(now);
+
+      storageService.saveSleepSoundscape(type, volume);
+      diagnosticsService.log('info', 'audio_context', `Started ambient soundscape: ${type} at volume ${volume}`);
+    } catch (e) {
+      console.warn('Failed to start ambient soundscape:', e);
+    }
+  }
+
+  public setAmbientSoundscapeVolume(volume: number) {
+    this.ambientSoundscapeVolume = Math.max(0, Math.min(1, volume));
+    if (this.ambientGainNode && this.audioCtx) {
+      const now = this.audioCtx.currentTime;
+      this.ambientGainNode.gain.linearRampToValueAtTime(this.ambientSoundscapeVolume * 0.4, now + 0.1);
+    }
+    storageService.saveSleepSoundscape(this.ambientSoundscapeType, this.ambientSoundscapeVolume);
+  }
+
+  public stopAmbientSoundscape() {
+    try {
+      if (this.ambientGainNode && this.audioCtx) {
+        const now = this.audioCtx.currentTime;
+        this.ambientGainNode.gain.linearRampToValueAtTime(0.0001, now + 0.3);
+      }
+      setTimeout(() => {
+        if (this.ambientSourceNode) {
+          try { this.ambientSourceNode.stop(); this.ambientSourceNode.disconnect(); } catch {}
+          this.ambientSourceNode = null;
+        }
+        if (this.ambientLfoNode) {
+          try { this.ambientLfoNode.stop(); this.ambientLfoNode.disconnect(); } catch {}
+          this.ambientLfoNode = null;
+        }
+        if (this.ambientFilterNode) {
+          try { this.ambientFilterNode.disconnect(); } catch {}
+          this.ambientFilterNode = null;
+        }
+        if (this.ambientGainNode) {
+          try { this.ambientGainNode.disconnect(); } catch {}
+          this.ambientGainNode = null;
+        }
+      }, 350);
+      this.ambientSoundscapeType = 'none';
+    } catch (e) {
+      console.warn('Error stopping ambient soundscape:', e);
+    }
+  }
+
+  public getAmbientSoundscapeState() {
+    return {
+      type: this.ambientSoundscapeType,
+      volume: this.ambientSoundscapeVolume,
+      active: this.ambientSoundscapeType !== 'none' && this.ambientSourceNode !== null
+    };
   }
 
   public playSystemChimeLoop(volume: number = 0.8) {
@@ -1729,19 +2289,166 @@ class AudioEngine {
       if (!alarm || !alarm.isEnabled) return;
 
       const now = new Date();
-      if (now.getHours() === alarm.hour && now.getMinutes() === alarm.minute && now.getSeconds() < 6) {
+      if (alarm.days && alarm.days.length > 0) {
+        if (!alarm.days.includes(now.getDay())) return;
+      }
+
+      const nowMins = now.getHours() * 60 + now.getMinutes();
+      const alarmMins = alarm.hour * 60 + alarm.minute;
+
+      let isGentleTrigger = false;
+      if (alarm.gentleWakeUpEnabled) {
+        const rampWindow = Math.max(1, Math.min(5, alarm.gentleWakeUpWindowMins || 3));
+        const gentleStartMins = (alarmMins - rampWindow + 1440) % 1440;
+        if (nowMins === gentleStartMins && now.getSeconds() < 6) {
+          isGentleTrigger = true;
+        }
+      }
+
+      const isExactAlarmTime = (now.getHours() === alarm.hour && now.getMinutes() === alarm.minute && now.getSeconds() < 6);
+
+      if (isGentleTrigger || isExactAlarmTime) {
         if (!this.isAlarmRinging) {
-          this.triggerAlarm(alarm);
+          this.triggerAlarm(alarm, isGentleTrigger);
         }
       } else {
-        this.isAlarmRinging = false;
+        const diff = Math.abs(nowMins - alarmMins);
+        if (diff > 10 && diff < 1430) {
+          this.isAlarmRinging = false;
+        }
       }
     }, 5000);
   }
 
-  private async triggerAlarm(alarm: AlarmConfig) {
+  private backupSynthInterval: any = null;
+
+  public playBackupSynthSound(soundType: string = 'gentle_bells', vol: number = 0.85): void {
+    if (soundType === 'none') return;
+    this.stopBackupSynthSound();
+
+    if (soundType === 'custom') {
+      const customSound = storageService.getCustomWakeSound();
+      if (customSound && customSound.url) {
+        try {
+          const customAudio = new Audio(customSound.url);
+          customAudio.volume = vol;
+          customAudio.loop = true;
+          customAudio.play().catch(e => console.warn('Custom wake sound playback error:', e));
+          this.preCachedAudios.set('custom_backup_audio', customAudio);
+          return;
+        } catch (e) {
+          console.warn('Custom wake audio play error:', e);
+        }
+      }
+    }
+
+    // If an ambient soundscape is selected as the wake tone (e.g. gentle_rain, ocean_waves, forest_night)
+    if (['gentle_rain', 'ocean_waves', 'forest_night', 'nature_birds', 'white_noise'].includes(soundType)) {
+      const soundscapeKey = soundType === 'nature_birds' ? 'forest_night' : soundType as any;
+      this.startAmbientSoundscape(soundscapeKey, vol);
+      return;
+    }
+
+    try {
+      const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (!this.audioCtx || this.audioCtx.state === 'closed') {
+        this.audioCtx = new AudioCtxClass();
+      }
+      if (this.audioCtx.state === 'suspended') {
+        this.audioCtx.resume();
+      }
+
+      const ctx = this.audioCtx;
+
+      const playTone = () => {
+        if (!ctx || ctx.state === 'closed') return;
+        const now = ctx.currentTime;
+
+        if (soundType === 'chime' || soundType === 'gentle_bells') {
+          const freqs = soundType === 'chime' ? [523.25, 659.25, 783.99, 1046.50] : [440, 554.37, 659.25, 880];
+          freqs.forEach((f, idx) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(f, now + idx * 0.15);
+            gain.gain.setValueAtTime(vol * 0.3, now + idx * 0.15);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + idx * 0.15 + 1.2);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(now + idx * 0.15);
+            osc.stop(now + idx * 0.15 + 1.25);
+          });
+        } else if (soundType === 'radar_pulse') {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'square';
+          osc.frequency.setValueAtTime(880, now);
+          osc.frequency.setValueAtTime(1760, now + 0.1);
+          gain.gain.setValueAtTime(vol * 0.25, now);
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.3);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(now);
+          osc.stop(now + 0.35);
+        } else if (soundType === 'nature_birds') {
+          [600, 800, 1200].forEach((freq, idx) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(freq, now + idx * 0.12);
+            osc.frequency.exponentialRampToValueAtTime(freq * 1.5, now + idx * 0.12 + 0.1);
+            gain.gain.setValueAtTime(vol * 0.2, now + idx * 0.12);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + idx * 0.12 + 0.25);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(now + idx * 0.12);
+            osc.stop(now + idx * 0.12 + 0.28);
+          });
+        } else if (soundType === 'white_noise') {
+          const bufferSize = ctx.sampleRate * 0.5;
+          const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+          const data = buffer.getChannelData(0);
+          for (let i = 0; i < bufferSize; i++) {
+            data[i] = Math.random() * 2 - 1;
+          }
+          const noise = ctx.createBufferSource();
+          noise.buffer = buffer;
+          const gain = ctx.createGain();
+          gain.gain.setValueAtTime(vol * 0.15, now);
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.5);
+          noise.connect(gain);
+          gain.connect(ctx.destination);
+          noise.start(now);
+        }
+      };
+
+      playTone();
+      const intervalMs = soundType === 'radar_pulse' ? 1200 : soundType === 'nature_birds' ? 2000 : 2500;
+      this.backupSynthInterval = setInterval(playTone, intervalMs);
+    } catch (e) {
+      console.warn('Backup synth sound play error:', e);
+    }
+  }
+
+  public stopBackupSynthSound(): void {
+    const customAudio = this.preCachedAudios.get('custom_backup_audio');
+    if (customAudio) {
+      try {
+        customAudio.pause();
+        customAudio.currentTime = 0;
+      } catch {}
+      this.preCachedAudios.delete('custom_backup_audio');
+    }
+
+    if (this.backupSynthInterval) {
+      clearInterval(this.backupSynthInterval);
+      this.backupSynthInterval = null;
+    }
+  }
+
+  private async triggerAlarm(alarm: AlarmConfig, isGentleTrigger: boolean = false) {
     this.isAlarmRinging = true;
-    console.log('⏰ Radio Alarm triggered for station:', alarm.stationName);
+    console.log('⏰ Radio Alarm triggered for station:', alarm.stationName, 'Gentle Wake-Up:', isGentleTrigger || alarm.gentleWakeUpEnabled);
 
     // Start rhythmic attention-grabbing vibration pattern for mobile haptics
     if (this.alarmVibrationInterval) {
@@ -1771,59 +2478,114 @@ class AudioEngine {
       isFavorite: false,
     };
 
-    let shouldRamp = true;
-    if (alarm.weatherRampEnabled) {
-      try {
-        const weather = await getLocalWeatherInfo(alarm.weatherCity);
-        const condition = (weather.conditionText || '').toLowerCase();
-        const selectedCond = alarm.weatherRampCondition || 'any';
-        
-        let met = false;
-        if (selectedCond === 'any') {
-          met = true;
-        } else if (selectedCond === 'clear') {
-          met = condition.includes('clear') || condition.includes('sunny') || condition.includes('mild');
-        } else if (selectedCond === 'rainy') {
-          met = condition.includes('rain') || condition.includes('drizzle') || condition.includes('storm') || condition.includes('shower');
-        } else if (selectedCond === 'snowy') {
-          met = condition.includes('snow');
-        } else if (selectedCond === 'cloudy') {
-          met = condition.includes('cloud') || condition.includes('overcast') || condition.includes('fog');
-        }
-        
-        shouldRamp = met;
-        console.log(`[Alarm Weather Ramp] Weather condition is "${condition}". Selected condition is "${selectedCond}". Match met: ${met}`);
-      } catch (e) {
-        console.warn('Failed to evaluate alarm weather condition, defaulting to normal play:', e);
-        shouldRamp = true;
-      }
-    }
+    let minVol = alarm.minWakeVolume ?? 0.10;
+    let maxVol = Math.max(minVol, alarm.maxCeilingVolume ?? alarm.volume ?? 0.85);
 
-    if (shouldRamp) {
-      // Smooth wake-up volume ramp up
-      this.audio.volume = 0.05;
-      await this.playStation(station);
+    try {
+      if (alarm.gentleWakeUpEnabled || isGentleTrigger) {
+        // Gentle Wake-Up: Slowly ramp audio volume from minVol to maxVol over 1-5 minutes
+        const windowMins = Math.max(1, Math.min(5, alarm.gentleWakeUpWindowMins || 3));
+        const rampWindowSec = windowMins * 60;
+        const volStep = (maxVol - minVol) / rampWindowSec;
+        let currentRampVol = minVol;
 
-      let ramp = 0.05;
-      const rampInterval = setInterval(() => {
-        if (!this.isAlarmRinging) {
-          clearInterval(rampInterval);
-          return;
+        this.audio.volume = minVol;
+        await this.playStation(station);
+
+        const rampInterval = setInterval(() => {
+          if (!this.isAlarmRinging) {
+            clearInterval(rampInterval);
+            return;
+          }
+          currentRampVol = Math.min(maxVol, currentRampVol + volStep);
+          this.audio.volume = currentRampVol;
+          if (currentRampVol >= maxVol) {
+            this.audio.volume = maxVol;
+            clearInterval(rampInterval);
+          }
+        }, 1000);
+      } else {
+        let shouldRamp = true;
+        if (alarm.weatherRampEnabled) {
+          try {
+            const weather = await getLocalWeatherInfo(alarm.weatherCity);
+            const condition = (weather.conditionText || '').toLowerCase();
+            const selectedCond = alarm.weatherRampCondition || 'any';
+            
+            let met = false;
+            if (selectedCond === 'any') {
+              met = true;
+            } else if (selectedCond === 'clear') {
+              met = condition.includes('clear') || condition.includes('sunny') || condition.includes('mild');
+            } else if (selectedCond === 'rainy') {
+              met = condition.includes('rain') || condition.includes('drizzle') || condition.includes('storm') || condition.includes('shower');
+            } else if (selectedCond === 'snowy') {
+              met = condition.includes('snow');
+            } else if (selectedCond === 'cloudy') {
+              met = condition.includes('cloud') || condition.includes('overcast') || condition.includes('fog');
+            }
+            
+            shouldRamp = met;
+            console.log(`[Alarm Weather Ramp] Weather condition is "${condition}". Selected condition is "${selectedCond}". Match met: ${met}`);
+          } catch (e) {
+            console.warn('Failed to evaluate alarm weather condition, defaulting to normal play:', e);
+            shouldRamp = true;
+          }
         }
-        ramp += 0.05;
-        const targetVol = alarm.volume ?? this.volume;
-        if (ramp >= targetVol) {
-          this.audio.volume = targetVol;
-          clearInterval(rampInterval);
+
+        // Enforce Volume Safety Lock if enabled
+        if (storageService.getVolumeSafetyLockEnabled()) {
+          const lockThreshold = storageService.getVolumeSafetyLockThreshold();
+          if (maxVol > lockThreshold) maxVol = lockThreshold;
+          if (minVol > lockThreshold) minVol = lockThreshold;
+        }
+
+        // Helper to attempt playing station with a strict 5-second timeout
+        const playStationWith5sTimeout = async (st: any) => {
+          let timer: any = null;
+          const timeoutPromise = new Promise((_, reject) => {
+            timer = setTimeout(() => {
+              reject(new Error('Live radio stream failed to load within 5 seconds threshold'));
+            }, 5000);
+          });
+          try {
+            await Promise.race([this.playStation(st), timeoutPromise]);
+          } finally {
+            if (timer) clearTimeout(timer);
+          }
+        };
+
+        if (shouldRamp) {
+          // Short 20-second default volume ramp up from minVol to maxVol
+          this.audio.volume = minVol;
+          await playStationWith5sTimeout(station);
+
+          let ramp = minVol;
+          const rampInterval = setInterval(() => {
+            if (!this.isAlarmRinging) {
+              clearInterval(rampInterval);
+              return;
+            }
+            ramp += 0.05;
+            if (ramp >= maxVol) {
+              this.audio.volume = maxVol;
+              clearInterval(rampInterval);
+            } else {
+              this.audio.volume = ramp;
+            }
+          }, 1000);
         } else {
-          this.audio.volume = ramp;
+          // Immediately set target volume
+          this.audio.volume = maxVol;
+          await playStationWith5sTimeout(station);
         }
-      }, 1000);
-    } else {
-      // Immediately set target volume
-      const targetVol = alarm.volume ?? this.volume;
-      this.audio.volume = targetVol;
-      await this.playStation(station);
+      }
+    } catch (err) {
+      console.warn('Radio stream failed to connect or timed out (5s) for alarm, failing over to alternative wake tone:', err);
+      const wakeTone = alarm.useAlternativeWakeTone && alarm.alternativeWakeSound 
+        ? alarm.alternativeWakeSound 
+        : (alarm.backupSound || 'gentle_bells');
+      this.playBackupSynthSound(wakeTone, maxVol);
     }
 
     // If custom voice memo is recorded, play voice memo audio overlay
@@ -1906,6 +2668,7 @@ class AudioEngine {
   public stopAlarm() {
     this.isAlarmRinging = false;
     this.stopSystemChimeLoop();
+    this.stopBackupSynthSound();
     if (this.alarmVibrationInterval) {
       clearInterval(this.alarmVibrationInterval);
       this.alarmVibrationInterval = null;
@@ -2266,6 +3029,12 @@ class AudioEngine {
       audioContextState: this.getAudioContextState(),
       audioLatencyMs: this.getAudioLatencyMs(),
       heartbeatActive: this.heartbeatInterval !== null,
+      isFadePreviewing: this.isFadePreviewing,
+      autoCrossfadeEnabled: this.autoCrossfadeEnabled,
+      isSmartBufferActive: this.isSmartBufferActive,
+      isRewinding: this.isRewinding,
+      isReconnecting: this.streamRetryCount > 0,
+      streamRetryCount: this.streamRetryCount,
     };
   }
 
@@ -2273,6 +3042,112 @@ class AudioEngine {
     const state = this.getState();
     for (const listener of this.listeners) {
       listener(state);
+    }
+  }
+
+  private async saveBufferToIndexedDB() {
+    if (this.pcmChunksLeft.length === 0) return;
+    try {
+      const totalLength = this.pcmChunksLeft.reduce((acc, chunk) => acc + chunk.length, 0);
+      const flatLeft = new Float32Array(totalLength);
+      const flatRight = new Float32Array(totalLength);
+      let offset = 0;
+      for (let i = 0; i < this.pcmChunksLeft.length; i++) {
+        flatLeft.set(this.pcmChunksLeft[i], offset);
+        flatRight.set(this.pcmChunksRight[i], offset);
+        offset += this.pcmChunksLeft[i].length;
+      }
+      await indexedDBService.saveRewindBuffer(flatLeft, flatRight, this.audioCtx?.sampleRate || 44100);
+    } catch (e) {
+      console.warn('Failed to persist pcm cache to IndexedDB:', e);
+    }
+  }
+
+  public stopRewind(): void {
+    if (this.isRewinding) {
+      this.isRewinding = false;
+      if (this.rewindSourceNode) {
+        try { this.rewindSourceNode.stop(); } catch {}
+        this.rewindSourceNode = null;
+      }
+      this.notifyState();
+    }
+  }
+
+  public async rewind30Seconds(): Promise<void> {
+    if (!this.webAudioInitialized || !this.audioCtx) {
+      console.warn('Audio graph not initialized. Cannot rewind.');
+      return;
+    }
+
+    triggerHaptic('medium');
+
+    // 1. Stop any current rewind playback
+    if (this.rewindSourceNode) {
+      try { this.rewindSourceNode.stop(); } catch {}
+      this.rewindSourceNode = null;
+    }
+
+    // 2. Pause live stream
+    this.audio.pause();
+    this.isRewinding = true;
+    this.notifyState();
+
+    // 3. Load recorded buffer from IndexedDB or memory fallback
+    let left: Float32Array;
+    let right: Float32Array;
+    let sampleRate = this.audioCtx.sampleRate || 44100;
+
+    const dbData = await indexedDBService.getRewindBuffer();
+    if (dbData && dbData.left.length > 0) {
+      left = dbData.left;
+      right = dbData.right;
+      sampleRate = dbData.sampleRate;
+    } else if (this.pcmChunksLeft.length > 0) {
+      const totalLength = this.pcmChunksLeft.reduce((acc, chunk) => acc + chunk.length, 0);
+      left = new Float32Array(totalLength);
+      right = new Float32Array(totalLength);
+      let offset = 0;
+      for (let i = 0; i < this.pcmChunksLeft.length; i++) {
+        left.set(this.pcmChunksLeft[i], offset);
+        right.set(this.pcmChunksRight[i], offset);
+        offset += this.pcmChunksLeft[i].length;
+      }
+    } else {
+      console.warn('No recorded audio buffer available to rewind.');
+      this.isRewinding = false;
+      this.audio.play().catch(() => {});
+      this.notifyState();
+      return;
+    }
+
+    // 4. Create AudioBuffer
+    try {
+      const audioBuffer = this.audioCtx.createBuffer(2, left.length, sampleRate);
+      audioBuffer.copyToChannel(left, 0);
+      audioBuffer.copyToChannel(right, 1);
+
+      // 5. Create AudioBufferSourceNode and play it
+      this.rewindSourceNode = this.audioCtx.createBufferSource();
+      this.rewindSourceNode.buffer = audioBuffer;
+      this.rewindSourceNode.connect(this.audioCtx.destination);
+      
+      this.rewindSourceNode.onended = () => {
+        if (this.isRewinding) {
+          console.log('[AudioEngine] Rewind buffer finished, resuming live stream.');
+          this.isRewinding = false;
+          this.audio.play().catch(() => {});
+          this.notifyState();
+        }
+      };
+
+      this.rewindSourceNode.start();
+      console.log('[AudioEngine] Started playing rewind 30s audio buffer.');
+    } catch (err) {
+      console.error('Failed to create or play rewind buffer:', err);
+      this.isRewinding = false;
+      this.audio.play().catch(() => {});
+      this.notifyState();
     }
   }
 }

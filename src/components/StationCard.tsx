@@ -1,5 +1,10 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Play, Pause, Heart, MoreVertical, Bell, ShieldAlert, Share2, Radio, ExternalLink, Bookmark, BookmarkCheck, Tag, Globe, Gauge, Cpu, ChevronDown, ChevronUp, Link as LinkIcon, Sparkles, FileText, QrCode, Volume2, Check } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { 
+  Play, Pause, Heart, MoreVertical, Bell, ShieldAlert, Share2, 
+  ExternalLink, Bookmark, BookmarkCheck, Tag, Globe, Gauge, Cpu, 
+  ChevronDown, ChevronUp, Link as LinkIcon, Sparkles, FileText, 
+  Volume2, Check, Sliders, Info, X
+} from 'lucide-react';
 import { RadioStation } from '../types';
 import { storageService } from '../services/storageService';
 import { audioEngine } from '../services/audioEngine';
@@ -18,6 +23,7 @@ interface StationCardProps {
   onBlockStation?: (station: RadioStation) => void;
   onShare?: (station: RadioStation) => void;
   onEditTags?: (station: RadioStation) => void;
+  isCompact?: boolean;
 }
 
 export const StationCard: React.FC<StationCardProps> = ({
@@ -32,9 +38,10 @@ export const StationCard: React.FC<StationCardProps> = ({
   onBlockStation,
   onShare,
   onEditTags,
+  isCompact = false,
 }) => {
   const [showMenu, setShowMenu] = useState(false);
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
   const [imgError, setImgError] = useState(false);
   const [shareFeedback, setShareFeedback] = useState<string | null>(null);
 
@@ -48,8 +55,62 @@ export const StationCard: React.FC<StationCardProps> = ({
     () => storageService.getStationLoudnessOverride(station.id)
   );
 
-  const handleNativeShare = async (e: React.MouseEvent) => {
-    e.stopPropagation();
+  // Station Mood Tags State
+  const [stationTags, setStationTags] = useState<string[]>(() => storageService.getStationTags(station.id));
+  const [showTagEditor, setShowTagEditor] = useState<boolean>(false);
+  const [customTagInput, setCustomTagInput] = useState<string>('');
+
+  // Listen Later State
+  const [isInListenLaterQueue, setIsInListenLaterQueue] = useState<boolean>(() => storageService.isInListenLater(station.id));
+
+  useEffect(() => {
+    const unsub = storageService.subscribeListenLater((queue) => {
+      setIsInListenLaterQueue(queue.some(i => i.id === station.id || i.station?.id === station.id || i.audioUrl === station.streamUrl));
+    });
+    return unsub;
+  }, [station.id, station.streamUrl]);
+
+  const handleToggleListenLater = () => {
+    triggerHaptic('selection');
+    if (onToggleQueue) {
+      onToggleQueue(station);
+    } else {
+      storageService.toggleListenLater({
+        type: 'radio',
+        title: station.name,
+        subtitle: station.genre || 'Live Stream',
+        audioUrl: station.streamUrl,
+        imageUrl: station.imageUrl,
+        station: station
+      });
+    }
+  };
+
+  const PRESET_MOOD_TAGS = ['Focus', 'Workout', 'Relax', 'Chill', 'Energy', 'Sleep', 'Morning', 'Jazz'];
+
+  const handleToggleTag = (tag: string) => {
+    triggerHaptic('selection');
+    if (stationTags.includes(tag)) {
+      const updated = storageService.removeStationTag(station.id, tag);
+      setStationTags(updated);
+    } else {
+      const updated = storageService.addStationTag(station.id, tag);
+      setStationTags(updated);
+    }
+  };
+
+  const handleAddCustomTag = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!customTagInput.trim()) return;
+    triggerHaptic('success');
+    const updated = storageService.addStationTag(station.id, customTagInput.trim());
+    setStationTags(updated);
+    setCustomTagInput('');
+  };
+
+  const handleNativeShare = async (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setShowMenu(false);
     const payload = createStationShareData(station);
     const result = await shareContent(payload);
     if (result.success) {
@@ -89,7 +150,7 @@ export const StationCard: React.FC<StationCardProps> = ({
       if (['KR'].includes(cc)) return 'Korean';
       if (['TR'].includes(cc)) return 'Turkish';
       if (['SE', 'NO', 'DK', 'FI'].includes(cc)) return 'Nordic';
-      if (['IN'].includes(cc)) return 'Hindi / English';
+      if (['IN'].includes(cc)) return 'Hindi';
       if (['GR'].includes(cc)) return 'Greek';
       if (['TH'].includes(cc)) return 'Thai';
     }
@@ -102,72 +163,49 @@ export const StationCard: React.FC<StationCardProps> = ({
     if (text.includes('portuguese')) return 'Portuguese';
     if (text.includes('italian')) return 'Italian';
     if (text.includes('russian')) return 'Russian';
-    return station.countryCode ? station.countryCode.toUpperCase() : 'Global';
+    return null;
   }, [station]);
-
-  // Touch Swipe Gesture State
-  const touchStartX = useRef<number | null>(null);
-  const touchEndX = useRef<number | null>(null);
 
   const fallbackArt = 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=200&auto=format&fit=crop&q=80';
 
-  const handleTouchStart = (e: React.TouchEvent) => {
-    touchStartX.current = e.targetTouches[0].clientX;
-    touchEndX.current = null;
-  };
+  const formattedBitrate = React.useMemo(() => {
+    if (!station.bitrate) return '128k';
+    const num = station.bitrate.replace(/\D/g, '');
+    return num ? `${num}k` : station.bitrate;
+  }, [station.bitrate]);
 
-  const handleTouchMove = (e: React.TouchEvent) => {
-    touchEndX.current = e.targetTouches[0].clientX;
-  };
+  const formattedCodec = React.useMemo(() => {
+    return (station.codec || 'MP3').toUpperCase();
+  }, [station.codec]);
 
-  const handleTouchEnd = () => {
-    if (!touchStartX.current || !touchEndX.current) return;
-    const distance = touchStartX.current - touchEndX.current;
-    const isLeftSwipe = distance > 45;
-    const isRightSwipe = distance < -45;
+  const isHQ = React.useMemo(() => {
+    const num = parseInt((station.bitrate || '').replace(/\D/g, ''), 10);
+    return num >= 192 || formattedCodec === 'AAC' || formattedCodec === 'FLAC';
+  }, [station.bitrate, formattedCodec]);
 
-    if (isLeftSwipe || isRightSwipe) {
-      triggerHaptic('swipe');
-      setIsExpanded(prev => !prev);
-    }
-    touchStartX.current = null;
-    touchEndX.current = null;
-  };
-
-  const toggleExpand = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    triggerHaptic('selection');
-    setIsExpanded(!isExpanded);
-  };
-
-  return (
-    <div
-      onTouchStart={handleTouchStart}
-      onTouchMove={handleTouchMove}
-      onTouchEnd={handleTouchEnd}
-      className={`group relative flex flex-col justify-between p-3 rounded-2xl border transition-all duration-300 tv-focusable backdrop-blur-xl shadow-md shadow-black/20 ${
-        isCurrent
-          ? 'bg-[var(--accent-primary)]/15 border-[var(--accent-primary)]/70 shadow-[var(--accent-primary)]/15 ring-1 ring-[var(--accent-primary)]/30'
-          : 'bg-[var(--surface-main)]/60 border-[var(--border-color)] hover:border-white/20 hover:bg-[var(--surface-hover)]/70'
-      }`}
-    >
-      <div className="flex items-start gap-2.5">
-        {/* Cover Artwork & Country Abbr Tag under Avatar */}
-        <div className="flex flex-col items-center shrink-0 w-16">
-          <div className="relative w-16 h-16 rounded-xl overflow-hidden bg-black/40 border border-white/5">
+  if (isCompact) {
+    return (
+      <div
+        id={`compact_station_${station.id}`}
+        className={`group relative flex items-center justify-between p-2 rounded-xl border transition-all duration-200 tv-focusable backdrop-blur-xl shadow-sm gap-3 ${
+          isCurrent
+            ? 'bg-[var(--accent-primary)]/10 border-[var(--accent-primary)]/70 ring-1 ring-[var(--accent-primary)]/30'
+            : 'bg-[var(--surface-main)]/70 border-[var(--border-color)] hover:border-white/20 hover:bg-[var(--surface-hover)]/80'
+        }`}
+      >
+        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+          {/* Smaller cover artwork */}
+          <div className="relative w-10 h-10 rounded-lg overflow-hidden bg-black/40 border border-white/10 shrink-0 shadow-sm">
             <img
               src={imgError || !station.imageUrl ? fallbackArt : station.imageUrl}
               alt={station.name}
               onError={() => setImgError(true)}
-              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+              className="w-full h-full object-cover"
             />
-
-            {/* Active Animated Playing Equalizer Indicator */}
             {isCurrent && isPlaying ? (
-              <div className="absolute inset-0 bg-black/50 flex items-center justify-center gap-1">
-                <span className="w-1 bg-[var(--accent-primary)] rounded-full animate-bounce" style={{ height: '60%', animationDelay: '0ms' }} />
-                <span className="w-1 bg-[var(--accent-secondary)] rounded-full animate-bounce" style={{ height: '90%', animationDelay: '150ms' }} />
-                <span className="w-1 bg-[var(--accent-primary)] rounded-full animate-bounce" style={{ height: '40%', animationDelay: '300ms' }} />
+              <div className="absolute inset-0 bg-black/50 flex items-center justify-center gap-0.5">
+                <span className="w-0.5 bg-[var(--accent-primary)] rounded-full animate-bounce" style={{ height: '60%', animationDelay: '0ms' }} />
+                <span className="w-0.5 bg-[var(--accent-secondary)] rounded-full animate-bounce" style={{ height: '90%', animationDelay: '150ms' }} />
               </div>
             ) : (
               <button
@@ -175,247 +213,338 @@ export const StationCard: React.FC<StationCardProps> = ({
                   triggerHaptic('play');
                   onPlay(station);
                 }}
-                className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white transition-opacity bg-gradient-to-t from-black/80 to-transparent cursor-pointer"
-                aria-label={`Play ${station.name}`}
+                className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white transition-opacity cursor-pointer"
               >
-                <div className="p-2 rounded-full bg-[var(--accent-primary)] text-black shadow-lg">
-                  <Play className="w-4 h-4 fill-current ml-0.5" />
-                </div>
+                <Play className="w-3.5 h-3.5 fill-current" />
               </button>
             )}
-
-            {/* Live Tag Pill */}
-            <div className="absolute top-1 left-1 px-1.5 py-0.5 rounded bg-red-600/90 text-white text-[8px] font-bold uppercase tracking-wider">
-              LIVE
-            </div>
           </div>
 
-          {/* Minimized Country Abbreviation Badge Under Avatar */}
-          <span className="mt-1 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-[9px] font-bold text-[var(--text-muted)] max-w-[64px] truncate" title={`Country: ${station.country || 'Global'}`}>
-            <span className="shrink-0">{station.countryCode ? getFlag(station.countryCode) : '🌐'}</span>
-            <span className="truncate">{station.countryCode ? station.countryCode.toUpperCase() : (station.country ? station.country.slice(0, 3).toUpperCase() : 'GLB')}</span>
-          </span>
-        </div>
-
-        {/* Station Info */}
-        <div className="flex-1 min-w-0 pr-0.5">
-          <div className="flex items-center justify-between gap-1">
+          {/* Title & Genre */}
+          <div className="min-w-0 flex-1">
             <h4
               onClick={() => {
-                triggerHaptic('selection');
-                setIsExpanded(!isExpanded);
+                triggerHaptic('play');
+                onPlay(station);
               }}
-              className={`text-sm font-bold truncate cursor-pointer hover:underline ${
+              className={`text-xs font-bold truncate cursor-pointer hover:underline ${
                 isCurrent ? 'text-[var(--accent-primary)]' : 'text-[var(--text-primary)]'
               }`}
             >
               {station.name}
             </h4>
+            <p className="text-[10px] text-[var(--text-muted)] truncate mt-0.5 flex items-center gap-1">
+              {station.countryCode && (
+                <span className="shrink-0 text-[10px]">{getFlag(station.countryCode)}</span>
+              )}
+              <span className="truncate">{station.genre || 'Live Stream'}</span>
+            </p>
+          </div>
+        </div>
 
-            {/* Expand Toggle Chevron Button */}
+        {/* Specs and action buttons */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <span className="hidden sm:inline-block text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 font-mono">
+            {formattedBitrate}
+          </span>
+          
+          <button
+            onClick={() => {
+              triggerHaptic('favorite');
+              onToggleFavorite(station);
+            }}
+            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+              station.isFavorite
+                ? 'text-rose-500 hover:text-rose-600'
+                : 'text-[var(--text-muted)] hover:text-white hover:bg-white/5'
+            }`}
+          >
+            <Heart className={`w-3.5 h-3.5 ${station.isFavorite ? 'fill-current' : ''}`} />
+          </button>
+
+          {/* Quick Play/Pause */}
+          <button
+            onClick={() => {
+              triggerHaptic('play');
+              if (isCurrent && isPlaying) {
+                audioEngine.pause();
+              } else {
+                onPlay(station);
+              }
+            }}
+            className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+              isCurrent
+                ? 'bg-[var(--accent-primary)] text-black font-extrabold'
+                : 'bg-white/5 hover:bg-white/10 text-[var(--text-muted)] hover:text-white'
+            }`}
+          >
+            {isCurrent && isPlaying ? (
+              <Pause className="w-3.5 h-3.5" />
+            ) : (
+              <Play className="w-3.5 h-3.5" />
+            )}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={`group relative flex flex-col justify-between p-3 rounded-2xl border transition-all duration-200 tv-focusable backdrop-blur-xl shadow-sm ${
+        isCurrent
+          ? 'bg-[var(--accent-primary)]/10 border-[var(--accent-primary)]/70 ring-1 ring-[var(--accent-primary)]/30'
+          : 'bg-[var(--surface-main)]/70 border-[var(--border-color)] hover:border-white/20 hover:bg-[var(--surface-hover)]/80'
+      }`}
+    >
+      {/* Station Top Main Section */}
+      <div className="flex items-start gap-3">
+        {/* Cover Artwork */}
+        <div className="relative w-14 h-14 rounded-2xl overflow-hidden bg-black/40 border border-white/10 shrink-0 shadow-md">
+          <img
+            src={imgError || !station.imageUrl ? fallbackArt : station.imageUrl}
+            alt={station.name}
+            onError={() => setImgError(true)}
+            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+          />
+
+          {/* Active Equalizer Overlay */}
+          {isCurrent && isPlaying ? (
+            <div className="absolute inset-0 bg-black/50 flex items-center justify-center gap-0.5">
+              <span className="w-1 bg-[var(--accent-primary)] rounded-full animate-bounce" style={{ height: '60%', animationDelay: '0ms' }} />
+              <span className="w-1 bg-[var(--accent-secondary)] rounded-full animate-bounce" style={{ height: '90%', animationDelay: '150ms' }} />
+              <span className="w-1 bg-[var(--accent-primary)] rounded-full animate-bounce" style={{ height: '40%', animationDelay: '300ms' }} />
+            </div>
+          ) : (
             <button
-              onClick={toggleExpand}
-              className="p-1 rounded-lg text-[var(--text-muted)] hover:text-white hover:bg-white/10 transition-colors min-w-[28px] min-h-[28px] flex items-center justify-center cursor-pointer shrink-0 ml-1"
-              title={isExpanded ? 'Collapse station details' : 'Expand station actions & info'}
-              aria-label="Toggle Expand Station"
+              onClick={() => {
+                triggerHaptic('play');
+                onPlay(station);
+              }}
+              className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white transition-opacity bg-gradient-to-t from-black/80 to-transparent cursor-pointer"
+              aria-label={`Play ${station.name}`}
             >
-              {isExpanded ? <ChevronUp className="w-3.5 h-3.5 text-[var(--accent-primary)]" /> : <ChevronDown className="w-3.5 h-3.5" />}
+              <div className="p-1.5 rounded-full bg-[var(--accent-primary)] text-black shadow-lg">
+                <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+              </div>
+            </button>
+          )}
+
+          {/* Live Tag Pill */}
+          <div className="absolute top-1 left-1 px-1 py-0.2 rounded bg-red-600/90 text-white text-[8px] font-bold uppercase tracking-wider">
+            LIVE
+          </div>
+        </div>
+
+        {/* Station Info: Full Name, Genre, Simplified Badges */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-start justify-between gap-1">
+            <h4
+              onClick={() => {
+                triggerHaptic('play');
+                onPlay(station);
+              }}
+              className={`text-sm font-bold truncate cursor-pointer hover:underline flex-1 min-w-0 ${
+                isCurrent ? 'text-[var(--accent-primary)]' : 'text-[var(--text-primary)]'
+              }`}
+              title={station.name}
+            >
+              {station.name}
+            </h4>
+
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                triggerHaptic('light');
+                setShowDetails(!showDetails);
+              }}
+              className={`p-1 rounded-lg transition-colors shrink-0 text-[var(--text-muted)] hover:text-white hover:bg-white/10 ${
+                showDetails ? 'bg-white/10 text-[var(--accent-primary)]' : ''
+              }`}
+              title={showDetails ? 'Collapse Drawer' : 'Expand Station Drawer'}
+              aria-label="Toggle Drawer"
+            >
+              <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${showDetails ? 'rotate-180 text-[var(--accent-primary)]' : ''}`} />
             </button>
           </div>
 
-          <p className="text-xs text-[var(--text-muted)] truncate mt-0.5">
-            {station.genre}
+          <p className="text-xs text-[var(--text-muted)] truncate mt-0.5 flex items-center gap-1.5" title={station.genre}>
+            {station.countryCode && (
+              <span className="shrink-0 text-xs">{getFlag(station.countryCode)}</span>
+            )}
+            <span className="truncate">{station.genre || 'Live Stream'}</span>
           </p>
 
-          {/* Unified Reordered Tags Row (Max 2 Rows strictly) */}
-          <div className="flex flex-wrap items-center gap-1 mt-1.5 text-[10px] max-h-[3.2rem] overflow-hidden">
-            {/* Bitrate Badge */}
-            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 font-mono font-semibold" title={`Bitrate: ${station.bitrate || '128 kbps'}`}>
-              <Gauge className="w-3 h-3 text-emerald-400 shrink-0" />
-              <span>{station.bitrate ? (station.bitrate.includes('k') ? station.bitrate : `${station.bitrate}k`) : '128k'}</span>
+          {/* Clean Stream Specs & Tags (Single Clean Row) */}
+          <div className="flex items-center gap-1.5 mt-1.5 text-[10px] flex-wrap">
+            {/* Format Pill (e.g. 128k MP3) */}
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 font-mono font-medium">
+              <span>{formattedBitrate}</span>
+              <span className="text-[9px] opacity-70">{formattedCodec}</span>
             </span>
 
-            {/* Codec Badge */}
-            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-300 font-mono font-semibold uppercase" title={`Codec: ${station.codec || 'MP3'}`}>
-              <Cpu className="w-3 h-3 text-amber-400 shrink-0" />
-              <span>{station.codec || 'MP3'}</span>
-            </span>
-
-            {/* Language Tag */}
-            {detectedLanguage && (
-              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-teal-500/20 border border-teal-500/30 text-teal-300 font-bold" title={`Primary Language: ${detectedLanguage}`}>
-                <Globe className="w-2.5 h-2.5" />
-                <span>{detectedLanguage}</span>
-              </span>
-            )}
-
-            {/* High Quality Tag */}
-            {(parseInt((station.bitrate || '').replace(/\D/g, ''), 10) >= 192 || (station.codec || '').toUpperCase() === 'AAC' || (station.codec || '').toUpperCase() === 'FLAC') && (
-              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 font-bold">
+            {/* HQ Badge if high bitrate */}
+            {isHQ && (
+              <span className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded bg-amber-500/15 border border-amber-500/20 text-amber-300 font-bold text-[9px]">
                 <Sparkles className="w-2.5 h-2.5" />
                 <span>HQ</span>
               </span>
             )}
 
-            {/* Ad-Free Tag */}
-            {((station.genre || '') + ' ' + (station.customTags || []).join(' ')).toLowerCase().match(/ad-free|no-ads|non-profit|public|community/) && (
-              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 font-bold">
-                <span>Ad-Free</span>
+            {/* Language Tag if present */}
+            {detectedLanguage && (
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-teal-500/15 border border-teal-500/20 text-teal-300 font-semibold text-[9px] truncate max-w-[80px]">
+                <Globe className="w-2.5 h-2.5 shrink-0" />
+                <span className="truncate">{detectedLanguage}</span>
               </span>
             )}
 
-            {/* Local Tag */}
-            {station.countryCode && (
-              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-500/20 border border-amber-500/30 text-amber-300 font-bold">
-                <span>Local</span>
+            {/* Custom Mood Tags Pills */}
+            {stationTags.map((tag) => (
+              <span
+                key={tag}
+                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-purple-500/20 border border-purple-500/30 text-purple-300 text-[9px] font-bold"
+              >
+                <Tag className="w-2 h-2" />
+                <span>{tag}</span>
               </span>
-            )}
+            ))}
+
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                triggerHaptic('light');
+                setShowTagEditor(!showTagEditor);
+                setShowDetails(true);
+              }}
+              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-white/5 hover:bg-white/10 text-[var(--text-muted)] hover:text-white text-[9px] font-semibold transition-colors cursor-pointer"
+              title="Add or Edit Mood Tags"
+            >
+              <Tag className="w-2.5 h-2.5" />
+              <span>+ Tag</span>
+            </button>
           </div>
 
-          {/* Actual Stream Bitrate & Format Detected During Playback */}
+          {/* Active Streaming Indicator */}
           {isCurrent && (
-            <div className="mt-2 px-2 py-1 rounded-md bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-between text-[10px] text-emerald-300 font-mono font-medium animate-fadeIn">
-              <div className="flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-                <span className="font-bold">Detected Live Stream:</span>
-              </div>
-              <span>
-                {station.bitrate ? (station.bitrate.includes('k') ? station.bitrate : `${station.bitrate} kbps`) : '128 kbps'} • {(station.codec || 'MP3').toUpperCase()}
-              </span>
+            <div className="mt-1.5 flex items-center gap-1 text-[10px] text-emerald-400 font-medium animate-fadeIn">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping shrink-0" />
+              <span className="truncate font-semibold">Active Stream Playing</span>
             </div>
           )}
 
-          {/* Saved Custom Note Preview Badge */}
-          {stationNote && (
-            <div className="mt-2 p-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-200 text-[11px] flex items-start gap-1.5">
-              <FileText className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
-              <span className="italic line-clamp-1 truncate">{stationNote}</span>
+          {/* Custom Note Indicator if note exists */}
+          {stationNote && !showDetails && (
+            <div 
+              onClick={() => setShowDetails(true)}
+              className="mt-1.5 flex items-center gap-1 text-[10px] text-amber-300/90 truncate cursor-pointer hover:underline"
+              title={stationNote}
+            >
+              <FileText className="w-3 h-3 text-amber-400 shrink-0" />
+              <span className="truncate italic">"{stationNote}"</span>
             </div>
           )}
 
-          {/* Share Feedback Toast Pill */}
+          {/* Share Feedback Toast */}
           {shareFeedback && (
-            <div className="mt-2 px-2.5 py-1 rounded-lg bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 text-[11px] font-semibold flex items-center gap-1.5 animate-fadeIn">
-              <Check className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+            <div className="mt-1.5 px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 text-[10px] font-semibold flex items-center gap-1 animate-fadeIn">
+              <Check className="w-3 h-3 text-cyan-400 shrink-0" />
               <span>{shareFeedback}</span>
             </div>
           )}
         </div>
       </div>
 
-      {/* Custom Tags Section if available */}
-      {station.customTags && station.customTags.length > 0 && (
-        <div className="mt-2.5 flex flex-wrap items-center gap-1">
-          {station.customTags.map((tag) => (
-            <span
-              key={tag}
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-purple-500/15 border border-purple-500/30 text-[10px] font-semibold text-purple-300"
-            >
-              <Tag className="w-2.5 h-2.5 opacity-70" />
-              <span>{tag}</span>
+      {/* EXPANDABLE DETAILS & SETTINGS PANEL (Toggled via 3-dot menu or Details button) */}
+      {showDetails && (
+        <div className="mt-3 pt-3 border-t border-white/10 space-y-2.5 text-xs animate-fadeIn">
+          {/* Header of details panel */}
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-1.5">
+              <Info className="w-3.5 h-3.5 text-[var(--accent-primary)]" />
+              <span>Station Details</span>
             </span>
-          ))}
-        </div>
-      )}
-
-      {/* EXPANDED ACTION & DETAILS DRAWER PANEL */}
-      {isExpanded && (
-        <div className="mt-3 pt-3 border-t border-white/10 space-y-3 animate-fadeIn">
-          {/* Quick Direct Action Toolbar */}
-          <div className="grid grid-cols-4 gap-2">
-            {/* Direct Play Button */}
             <button
-              onClick={(e) => {
-                e.stopPropagation();
-                triggerHaptic(isCurrent && isPlaying ? 'pause' : 'play');
-                onPlay(station);
-              }}
-              className={`flex flex-col items-center justify-center py-2.5 px-2 rounded-xl text-xs font-bold transition-all cursor-pointer min-h-[50px] ${
-                isCurrent && isPlaying
-                  ? 'bg-[var(--accent-primary)] text-black shadow-md'
-                  : 'bg-white/10 hover:bg-white/20 text-white'
-              }`}
+              onClick={() => setShowDetails(false)}
+              className="p-1 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+              title="Close Details"
             >
-              {isCurrent && isPlaying ? <Pause className="w-4 h-4 fill-current mb-0.5" /> : <Play className="w-4 h-4 fill-current ml-0.5 mb-0.5" />}
-              <span className="text-[10px]">{isCurrent && isPlaying ? 'Pause' : 'Play'}</span>
+              <X className="w-3.5 h-3.5" />
             </button>
-
-            {/* Direct Favorite Button */}
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                triggerHaptic('favorite');
-                onToggleFavorite(station);
-              }}
-              className={`flex flex-col items-center justify-center py-2.5 px-2 rounded-xl text-xs font-bold transition-all cursor-pointer min-h-[50px] ${
-                station.isFavorite
-                  ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
-                  : 'bg-white/10 hover:bg-white/20 text-white'
-              }`}
-            >
-              <Heart className={`w-4 h-4 mb-0.5 ${station.isFavorite ? 'fill-current text-rose-500' : ''}`} />
-              <span className="text-[10px]">{station.isFavorite ? 'Saved' : 'Favorite'}</span>
-            </button>
-
-            {/* Direct Share Button (Web Share API with fallback) */}
-            <button
-              onClick={handleNativeShare}
-              className="flex flex-col items-center justify-center py-2.5 px-2 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 text-xs font-bold transition-all cursor-pointer min-h-[50px] relative"
-              title="Share station directly via Web Share API or copy link"
-            >
-              <Share2 className="w-4 h-4 mb-0.5" />
-              <span className="text-[10px]">Share</span>
-            </button>
-
-            {/* Direct Alarm / Queue Button */}
-            {onSetAlarm ? (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  triggerHaptic('selection');
-                  onSetAlarm(station);
-                }}
-                className="flex flex-col items-center justify-center py-2.5 px-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-xs font-bold transition-all cursor-pointer min-h-[50px]"
-              >
-                <Bell className="w-4 h-4 mb-0.5" />
-                <span className="text-[10px]">Alarm</span>
-              </button>
-            ) : onToggleQueue ? (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  triggerHaptic('selection');
-                  onToggleQueue(station);
-                }}
-                className={`flex flex-col items-center justify-center py-2.5 px-2 rounded-xl text-xs font-bold transition-all cursor-pointer min-h-[50px] ${
-                  isQueued
-                    ? 'bg-amber-500/25 text-amber-300 border border-amber-500/30'
-                    : 'bg-white/10 hover:bg-white/20 text-white'
-                }`}
-              >
-                {isQueued ? <BookmarkCheck className="w-4 h-4 mb-0.5" /> : <Bookmark className="w-4 h-4 mb-0.5" />}
-                <span className="text-[10px]">{isQueued ? 'Queued' : 'Queue'}</span>
-              </button>
-            ) : null}
           </div>
 
-          {/* Custom Station Note Block */}
-          <div className="p-2.5 rounded-xl bg-black/40 border border-white/5 space-y-2">
+          {/* Custom Mood Tags Manager */}
+          <div className="p-2.5 rounded-xl bg-purple-950/20 border border-purple-500/20 space-y-2">
+            <div className="flex items-center justify-between text-xs font-bold text-purple-300">
+              <span className="flex items-center gap-1 text-[11px]">
+                <Tag className="w-3.5 h-3.5 text-purple-400" />
+                <span>Custom Mood Tags</span>
+              </span>
+              <span className="text-[10px] text-[var(--text-muted)]">{stationTags.length} tagged</span>
+            </div>
+
+            {/* Quick Mood Chips */}
+            <div className="flex flex-wrap gap-1">
+              {PRESET_MOOD_TAGS.map((tag) => {
+                const isSelected = stationTags.includes(tag);
+                return (
+                  <button
+                    key={tag}
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleToggleTag(tag);
+                    }}
+                    className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer border ${
+                      isSelected
+                        ? 'bg-purple-500 text-black border-purple-400 shadow-sm'
+                        : 'bg-white/5 border-white/10 text-[var(--text-muted)] hover:text-white hover:bg-white/10'
+                    }`}
+                  >
+                    {isSelected ? `✓ ${tag}` : `+ ${tag}`}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Custom Tag Input */}
+            <form onSubmit={handleAddCustomTag} className="flex items-center gap-1.5 pt-1">
+              <input
+                type="text"
+                value={customTagInput}
+                onChange={(e) => setCustomTagInput(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                placeholder="New mood tag (e.g. Study)..."
+                className="flex-1 bg-white/5 border border-white/10 rounded-lg px-2.5 py-1 text-xs text-white placeholder-white/40 focus:outline-none focus:border-purple-400 min-w-0"
+              />
+              <button
+                type="submit"
+                onClick={(e) => e.stopPropagation()}
+                className="px-2.5 py-1 rounded-lg bg-purple-500/30 border border-purple-500/40 text-purple-200 text-xs font-bold hover:bg-purple-500/40 cursor-pointer shrink-0"
+              >
+                Add
+              </button>
+            </form>
+          </div>
+
+          {/* Custom Station Note Editor */}
+          <div className="p-2.5 rounded-xl bg-black/40 border border-white/5 space-y-1.5">
             <div className="flex items-center justify-between text-xs font-semibold text-white">
-              <span className="flex items-center gap-1.5">
+              <span className="flex items-center gap-1 text-[11px]">
                 <FileText className="w-3.5 h-3.5 text-amber-400" />
-                <span>Custom Station Note</span>
+                <span>Station Note</span>
               </span>
               {noteSavedAlert && <span className="text-[10px] text-emerald-400 font-bold animate-fadeIn">Saved!</span>}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               <input
                 type="text"
                 value={noteInput}
                 onChange={(e) => setNoteInput(e.target.value)}
                 onClick={(e) => e.stopPropagation()}
-                placeholder="Add custom text note (e.g. Favorite show at 8 AM)..."
-                className="flex-1 bg-white/5 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-white/40 focus:outline-none focus:border-amber-400"
+                placeholder="Add text note (e.g. Morning show at 8 AM)..."
+                className="flex-1 bg-white/5 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-white/40 focus:outline-none focus:border-amber-400 min-w-0"
               />
               <button
                 type="button"
@@ -427,18 +556,18 @@ export const StationCard: React.FC<StationCardProps> = ({
                   setNoteSavedAlert(true);
                   setTimeout(() => setNoteSavedAlert(false), 2000);
                 }}
-                className="px-3 py-1.5 rounded-lg bg-amber-500/20 border border-amber-500/30 text-amber-300 text-xs font-bold hover:bg-amber-500/30 cursor-pointer shrink-0"
+                className="px-2.5 py-1.5 rounded-lg bg-amber-500/20 border border-amber-500/30 text-amber-300 text-xs font-bold hover:bg-amber-500/30 cursor-pointer shrink-0"
               >
                 Save
               </button>
             </div>
           </div>
 
-          {/* Loudness Normalization Override Selector */}
-          <div className="p-2.5 rounded-xl bg-black/40 border border-white/5 flex items-center justify-between text-xs">
-            <div className="flex items-center gap-1.5 text-[var(--text-muted)]">
-              <Volume2 className="w-3.5 h-3.5 text-indigo-400" />
-              <span>Loudness Normalization:</span>
+          {/* Loudness Normalization Override */}
+          <div className="p-2.5 rounded-xl bg-black/40 border border-white/5 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 text-[var(--text-muted)] text-[11px] truncate">
+              <Volume2 className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+              <span className="truncate">Loudness Norm:</span>
             </div>
             <select
               value={loudnessOverride}
@@ -453,55 +582,45 @@ export const StationCard: React.FC<StationCardProps> = ({
                 }
                 triggerHaptic('selection');
               }}
-              className="bg-[var(--bg-main)] border border-[var(--border-color)] rounded-xl px-3 py-2 text-xs text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-primary)] cursor-pointer min-h-[44px] sm:min-h-[36px]"
+              className="bg-[var(--bg-main)] border border-[var(--border-color)] rounded-lg px-2 py-1 text-xs text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-primary)] cursor-pointer"
             >
-              <option value="default" className="bg-zinc-950 text-white">Default (Global)</option>
+              <option value="default" className="bg-zinc-950 text-white">Default</option>
               <option value="enabled" className="bg-zinc-950 text-white">Force On</option>
-              <option value="disabled" className="bg-zinc-950 text-white">Override Off</option>
+              <option value="disabled" className="bg-zinc-950 text-white">Off</option>
             </select>
           </div>
 
-          {/* Technical Station Details & Stream Source Link */}
-          <div className="p-2.5 rounded-xl bg-black/40 border border-white/5 space-y-1.5 text-[11px] text-[var(--text-muted)]">
+          {/* Stream URL & Website links */}
+          <div className="p-2 rounded-xl bg-black/40 border border-white/5 space-y-1 text-[11px] text-[var(--text-muted)]">
             <div className="flex items-center justify-between">
-              <span>Stream Format:</span>
-              <span className="font-mono text-white font-semibold">{station.codec || 'MP3'} @ {station.bitrate || '128'} kbps</span>
+              <span>Stream:</span>
+              <span className="font-mono text-white font-medium">{formattedCodec} @ {formattedBitrate}</span>
             </div>
-            {station.streamUrl && (
-              <div className="flex items-center justify-between gap-2 overflow-hidden">
-                <span className="shrink-0 flex items-center gap-1">
-                  <LinkIcon className="w-3 h-3 text-cyan-400" />
-                  <span>Stream URL:</span>
-                </span>
-                <span className="font-mono text-[10px] text-cyan-300 truncate max-w-[180px]" title={station.streamUrl}>
-                  {station.streamUrl}
-                </span>
-              </div>
-            )}
             {station.homepage && (
               <a
                 href={station.homepage}
                 target="_blank"
                 rel="noreferrer"
                 onClick={(e) => e.stopPropagation()}
-                className="flex items-center gap-1.5 text-xs text-[var(--accent-primary)] hover:underline pt-1 font-semibold"
+                className="flex items-center gap-1 text-[11px] text-[var(--accent-primary)] hover:underline pt-0.5 font-semibold"
               >
-                <ExternalLink className="w-3.5 h-3.5" />
-                <span>Visit Official Radio Website</span>
+                <ExternalLink className="w-3 h-3 shrink-0" />
+                <span className="truncate">Official Station Website</span>
               </a>
             )}
           </div>
         </div>
       )}
 
-      {/* Card Footer Actions */}
-      <div className="mt-3 pt-2.5 border-t border-white/5 flex items-center justify-between text-xs gap-1.5">
+      {/* CARD FOOTER: SIMPLIFIED, CLEAN & NON-OVERLAPPING */}
+      <div className="mt-3 pt-2.5 border-t border-white/5 flex items-center justify-between gap-2">
+        {/* Primary Action Button: Listen / Playing */}
         <button
           onClick={() => {
             triggerHaptic('medium');
             onPlay(station);
           }}
-          className={`flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl font-semibold text-xs transition-colors min-h-[36px] cursor-pointer ${
+          className={`flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl font-bold text-xs transition-colors cursor-pointer min-h-[34px] truncate ${
             isCurrent && isPlaying
               ? 'bg-[var(--accent-primary)] text-black shadow-md'
               : 'bg-white/10 text-white hover:bg-white/20'
@@ -520,162 +639,200 @@ export const StationCard: React.FC<StationCardProps> = ({
           )}
         </button>
 
+        {/* Secondary Clean Action Buttons (Queue + Favorite + 3-Dot Menu) */}
         <div className="flex items-center gap-1 relative shrink-0">
-          {/* Custom Tags Button if onEditTags provided */}
-          {onEditTags && (
-            <button
-              onClick={() => onEditTags(station)}
-              className="p-2 rounded-xl text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 transition-colors min-w-[36px] min-h-[36px] flex items-center justify-center cursor-pointer"
-              title="Add / Edit Custom Tags"
-            >
-              <Tag className="w-4 h-4" />
-            </button>
-          )}
+          {/* Queue for Later Toggle Button */}
+          <button
+            onClick={handleToggleListenLater}
+            className={`p-1.5 rounded-xl transition-colors min-w-[34px] min-h-[34px] flex items-center justify-center cursor-pointer ${
+              isInListenLaterQueue || isQueued
+                ? 'text-amber-400 hover:text-amber-300 bg-amber-500/15 border border-amber-500/30'
+                : 'text-[var(--text-muted)] hover:text-white hover:bg-white/10'
+            }`}
+            title={isInListenLaterQueue || isQueued ? 'Remove from Listen Later' : 'Save to Listen Later'}
+            aria-label="Toggle Listen Later"
+          >
+            <Bookmark className={`w-4 h-4 ${isInListenLaterQueue || isQueued ? 'fill-current' : ''}`} />
+          </button>
 
-          {/* Quick Queue Toggle Button */}
-          {onToggleQueue && (
-            <button
-              onClick={() => {
-                triggerHaptic('selection');
-                onToggleQueue(station);
-              }}
-              className={`p-2 rounded-xl transition-colors min-w-[36px] min-h-[36px] flex items-center justify-center cursor-pointer ${
-                isQueued
-                  ? 'text-amber-400 hover:text-amber-300 bg-amber-500/10'
-                  : 'text-[var(--text-muted)] hover:text-white hover:bg-white/10'
-              }`}
-              title={isQueued ? 'In Queued for Later (Saved Offline)' : 'Queue for Later'}
-            >
-              {isQueued ? <BookmarkCheck className="w-4 h-4" /> : <Bookmark className="w-4 h-4" />}
-            </button>
-          )}
-
+          {/* Favorite Toggle Button */}
           <button
             onClick={() => {
               triggerHaptic('favorite');
               onToggleFavorite(station);
             }}
-            className={`p-2 rounded-xl transition-colors min-w-[36px] min-h-[36px] flex items-center justify-center cursor-pointer ${
+            className={`p-1.5 rounded-xl transition-colors min-w-[34px] min-h-[34px] flex items-center justify-center cursor-pointer ${
               station.isFavorite
-                ? 'text-rose-500 hover:text-rose-400 bg-rose-500/10'
+                ? 'text-rose-500 hover:text-rose-400 bg-rose-500/15 border border-rose-500/30'
                 : 'text-[var(--text-muted)] hover:text-white hover:bg-white/10'
             }`}
-            title={station.isFavorite ? 'Remove Favorite' : 'Add to Favorites'}
+            title={station.isFavorite ? 'Remove from Favorites' : 'Add to Favorites'}
+            aria-label="Toggle Favorite"
           >
             <Heart className={`w-4 h-4 ${station.isFavorite ? 'fill-current' : ''}`} />
           </button>
 
-          {/* Expand Details Button */}
+          {/* Drawer Expand Toggle Button */}
           <button
-            onClick={toggleExpand}
-            className="p-2 rounded-xl text-[var(--text-muted)] hover:text-white hover:bg-white/10 transition-colors min-w-[36px] min-h-[36px] flex items-center justify-center cursor-pointer"
-            title={isExpanded ? 'Hide Details' : 'Expand Details'}
+            onClick={() => {
+              triggerHaptic('light');
+              setShowDetails(!showDetails);
+            }}
+            className={`p-1.5 rounded-xl transition-colors min-w-[34px] min-h-[34px] flex items-center justify-center cursor-pointer ${
+              showDetails
+                ? 'text-[var(--accent-primary)] bg-[var(--accent-primary)]/15 border border-[var(--accent-primary)]/30'
+                : 'text-[var(--text-muted)] hover:text-white hover:bg-white/10'
+            }`}
+            title={showDetails ? 'Collapse Station Drawer' : 'Expand Station Drawer'}
+            aria-label="Toggle Drawer"
           >
-            {isExpanded ? <ChevronUp className="w-4 h-4 text-[var(--accent-primary)]" /> : <ChevronDown className="w-4 h-4" />}
+            <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${showDetails ? 'rotate-180' : ''}`} />
           </button>
 
-          {/* 3-Dot Context Menu Toggle */}
+          {/* 3-Dot Options Context Menu Button */}
           <button
-            onClick={() => setShowMenu(!showMenu)}
-            className="p-2 rounded-xl text-[var(--text-muted)] hover:text-white hover:bg-white/10 transition-colors min-w-[36px] min-h-[36px] flex items-center justify-center cursor-pointer"
+            onClick={(e) => {
+              e.stopPropagation();
+              triggerHaptic('light');
+              setShowMenu(!showMenu);
+            }}
+            className={`p-1.5 rounded-xl transition-colors min-w-[34px] min-h-[34px] flex items-center justify-center cursor-pointer ${
+              showMenu ? 'bg-white/20 text-white' : 'text-[var(--text-muted)] hover:text-white hover:bg-white/10'
+            }`}
+            title="More Options"
+            aria-label="Station Options"
           >
             <MoreVertical className="w-4 h-4" />
           </button>
 
-          {/* Dropdown Menu */}
+          {/* Dropdown Menu (Clean, Z-indexed, Non-overlapping) */}
           {showMenu && (
             <>
               <div
-                className="fixed inset-0 z-20"
-                onClick={() => setShowMenu(false)}
+                className="fixed inset-0 z-30"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowMenu(false);
+                }}
               />
-              <div className="absolute right-0 bottom-8 z-30 w-56 rounded-2xl bg-[var(--bg-main)] border border-[var(--border-color)] p-2.5 shadow-2xl shadow-black/95 space-y-1 text-xs text-[var(--text-primary)] backdrop-blur-3xl">
+              <div 
+                onClick={(e) => e.stopPropagation()}
+                className="absolute right-0 bottom-full mb-1.5 z-40 w-52 rounded-2xl bg-[var(--surface-main)] border border-[var(--border-color)] p-1.5 shadow-2xl shadow-black/90 space-y-0.5 text-xs text-[var(--text-primary)] backdrop-blur-2xl animate-fadeIn"
+              >
+                {/* Quick Play */}
                 <button
                   onClick={() => {
                     setShowMenu(false);
                     triggerHaptic('play');
                     onPlay(station);
                   }}
-                  className="w-full flex items-center gap-2.5 px-3.5 py-3 sm:py-2.5 rounded-xl hover:bg-white/10 text-left font-bold text-[var(--accent-primary)] cursor-pointer"
+                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-white/10 text-left font-bold text-[var(--accent-primary)] cursor-pointer"
                 >
                   <Play className="w-3.5 h-3.5 fill-current shrink-0" />
-                  <span className="truncate">Quick Play</span>
+                  <span className="truncate">{isCurrent && isPlaying ? 'Pause Playback' : 'Play Station'}</span>
                 </button>
 
+                {/* Queue for Later */}
+                {onToggleQueue && (
+                  <button
+                    onClick={() => {
+                      setShowMenu(false);
+                      triggerHaptic('selection');
+                      onToggleQueue(station);
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-white/10 text-left text-[var(--text-primary)] cursor-pointer"
+                  >
+                    {isQueued ? (
+                      <>
+                        <BookmarkCheck className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                        <span className="truncate">Remove from Queue</span>
+                      </>
+                    ) : (
+                      <>
+                        <Bookmark className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                        <span className="truncate">Queue for Later</span>
+                      </>
+                    )}
+                  </button>
+                )}
+
+                {/* Custom Tags */}
                 {onEditTags && (
                   <button
                     onClick={() => {
                       setShowMenu(false);
                       onEditTags(station);
                     }}
-                    className="w-full flex items-center gap-2.5 px-3.5 py-3 sm:py-2.5 rounded-xl hover:bg-white/10 text-left text-[var(--text-primary)]"
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-white/10 text-left text-[var(--text-primary)] cursor-pointer"
                   >
                     <Tag className="w-3.5 h-3.5 text-purple-400 shrink-0" />
-                    <span className="truncate">Manage Custom Tags</span>
+                    <span className="truncate">Manage Tags</span>
                   </button>
                 )}
 
-                {onToggleQueue && (
-                  <button
-                    onClick={() => {
-                      setShowMenu(false);
-                      onToggleQueue(station);
-                    }}
-                    className="w-full flex items-center gap-2.5 px-3.5 py-3 sm:py-2.5 rounded-xl hover:bg-white/10 text-left text-[var(--text-primary)]"
-                  >
-                    <Bookmark className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                    <span className="truncate">{isQueued ? 'Remove from Queue' : 'Queue for Later'}</span>
-                  </button>
-                )}
-
+                {/* Wake Alarm */}
                 {onSetAlarm && (
                   <button
                     onClick={() => {
                       setShowMenu(false);
+                      triggerHaptic('selection');
                       onSetAlarm(station);
                     }}
-                    className="w-full flex items-center gap-2.5 px-3.5 py-3 sm:py-2.5 rounded-xl hover:bg-white/10 text-left text-[var(--text-primary)]"
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-white/10 text-left text-[var(--text-primary)] cursor-pointer"
                   >
                     <Bell className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                     <span className="truncate">Set as Wake Alarm</span>
                   </button>
                 )}
 
-                {onShare && (
-                  <button
-                    onClick={() => {
-                      setShowMenu(false);
-                      onShare(station);
-                    }}
-                    className="w-full flex items-center gap-2.5 px-3.5 py-3 sm:py-2.5 rounded-xl hover:bg-white/10 text-left text-[var(--text-primary)]"
-                  >
-                    <Share2 className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                    <span className="truncate">Share Station</span>
-                  </button>
-                )}
+                {/* Share Station */}
+                <button
+                  onClick={() => {
+                    handleNativeShare();
+                  }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-white/10 text-left text-[var(--text-primary)] cursor-pointer"
+                >
+                  <Share2 className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                  <span className="truncate">Share Station</span>
+                </button>
 
+                {/* Station Details & Notes Toggle */}
+                <button
+                  onClick={() => {
+                    setShowMenu(false);
+                    setShowDetails(!showDetails);
+                  }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-white/10 text-left text-[var(--text-primary)] cursor-pointer"
+                >
+                  <Info className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                  <span className="truncate">{showDetails ? 'Hide Details' : 'Details & Notes'}</span>
+                </button>
+
+                {/* Official Website */}
                 {station.homepage && (
                   <a
                     href={station.homepage}
                     target="_blank"
                     rel="noreferrer"
-                    className="w-full flex items-center gap-2.5 px-3.5 py-3 sm:py-2.5 rounded-xl hover:bg-white/10 text-left text-[var(--text-muted)]"
+                    onClick={() => setShowMenu(false)}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-white/10 text-left text-[var(--text-muted)] hover:text-white"
                   >
                     <ExternalLink className="w-3.5 h-3.5 shrink-0" />
                     <span className="truncate">Official Website</span>
                   </a>
                 )}
 
+                {/* Block / Hide Station */}
                 {onBlockStation && (
                   <button
                     onClick={() => {
                       setShowMenu(false);
                       onBlockStation(station);
                     }}
-                    className="w-full flex items-center gap-2.5 px-3.5 py-3 sm:py-2.5 rounded-xl hover:bg-red-500/20 text-red-300 text-left font-semibold"
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-red-500/20 text-red-300 text-left font-semibold cursor-pointer border-t border-white/5 mt-1 pt-1.5"
                   >
                     <ShieldAlert className="w-3.5 h-3.5 text-red-400 shrink-0" />
-                    <span className="truncate">Block / Hide Station</span>
+                    <span className="truncate">Block Station</span>
                   </button>
                 )}
               </div>

@@ -1,5 +1,6 @@
 import React from 'react';
 import { X, Info, Heart, Radio, Disc3, ShieldCheck, ExternalLink, Coffee } from 'lucide-react';
+import { NeoTuneLogo } from '../NeoTuneLogo';
 
 interface AboutModalProps {
   isOpen: boolean;
@@ -13,10 +14,8 @@ export const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/90 backdrop-blur-sm animate-fadeIn overflow-y-auto">
       <div className="relative my-auto w-full max-w-md h-auto max-h-[85vh] sm:max-h-[90vh] rounded-3xl bg-[#12121a] border border-white/20 p-4 sm:p-6 shadow-2xl shadow-black/95 flex flex-col">
         <div className="flex items-center justify-between pb-3 sm:pb-4 border-b border-[var(--border-color)] shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-lg bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] shrink-0">
-              <Disc3 className="w-5 h-5 animate-spin" style={{ animationDuration: '6s' }} />
-            </div>
+          <div className="flex items-center gap-3">
+            <NeoTuneLogo size={40} showText={false} isPlaying={true} />
             <div>
               <h3 className="text-base sm:text-lg font-bold text-[var(--text-primary)]">NeoTune Audio Hub</h3>
               <p className="text-xs text-[var(--text-muted)]">Cross-Platform Global Radio & Podcast Streamer</p>

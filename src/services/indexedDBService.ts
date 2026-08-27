@@ -1,7 +1,7 @@
 import { RadioStation } from '../types';
 
 const DB_NAME = 'NeoTuneOfflineDB';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = 'last_listened_stations';
 const MAX_OFFLINE_STATIONS = 10;
 
@@ -9,6 +9,14 @@ interface OfflineStationEntry {
   id: string;
   station: RadioStation;
   listenedTimestamp: number;
+}
+
+interface RewindCacheEntry {
+  id: string;
+  left: Float32Array;
+  right: Float32Array;
+  sampleRate: number;
+  timestamp: number;
 }
 
 class IndexedDBService {
@@ -32,6 +40,9 @@ class IndexedDBService {
           if (!db.objectStoreNames.contains(STORE_NAME)) {
             const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
             store.createIndex('listenedTimestamp', 'listenedTimestamp', { unique: false });
+          }
+          if (!db.objectStoreNames.contains('rewind_audio_cache')) {
+            db.createObjectStore('rewind_audio_cache', { keyPath: 'id' });
           }
         };
 
@@ -148,6 +159,68 @@ class IndexedDBService {
       } catch (e) {
         console.warn('Failed to get offline stations from IndexedDB:', e);
         resolve([]);
+      }
+    });
+  }
+
+  /**
+   * Saves 30s audio buffer to IndexedDB for rewind.
+   */
+  async saveRewindBuffer(left: Float32Array, right: Float32Array, sampleRate: number): Promise<void> {
+    const db = await this.initDB();
+    if (!db) return;
+
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction('rewind_audio_cache', 'readwrite');
+        const store = tx.objectStore('rewind_audio_cache');
+
+        const entry: RewindCacheEntry = {
+          id: 'current_stream_buffer',
+          left,
+          right,
+          sampleRate,
+          timestamp: Date.now()
+        };
+
+        store.put(entry);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => resolve();
+      } catch (e) {
+        console.warn('Failed to save rewind buffer to IndexedDB:', e);
+        resolve();
+      }
+    });
+  }
+
+  /**
+   * Retrieves the 30s audio buffer from IndexedDB for rewind.
+   */
+  async getRewindBuffer(): Promise<{ left: Float32Array; right: Float32Array; sampleRate: number } | null> {
+    const db = await this.initDB();
+    if (!db) return null;
+
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction('rewind_audio_cache', 'readonly');
+        const store = tx.objectStore('rewind_audio_cache');
+        const req = store.get('current_stream_buffer');
+
+        req.onsuccess = () => {
+          const entry = req.result as RewindCacheEntry | undefined;
+          if (entry) {
+            resolve({ left: entry.left, right: entry.right, sampleRate: entry.sampleRate });
+          } else {
+            resolve(null);
+          }
+        };
+
+        req.onerror = () => {
+          resolve(null);
+        };
+      } catch (e) {
+        console.warn('Failed to get rewind buffer from IndexedDB:', e);
+        resolve(null);
       }
     });
   }

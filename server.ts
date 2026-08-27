@@ -413,6 +413,24 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', service: 'NeoTune API Gateway', timestamp: Date.now() });
 });
 
+// 1.1 Audio Trivia Fact Endpoint
+app.get('/api/trivia', (req, res) => {
+  const triviaFacts = [
+    "The first commercial radio broadcast took place in Pittsburgh, Pennsylvania, on November 2, 1920, announcing the election results of the Harding-Cox presidential race.",
+    "The shortest song ever recorded is 'You Suffer' by Napalm Death, which lasts precisely 1.316 seconds.",
+    "In 1930, the Galvin Manufacturing Corporation introduced the first commercially successful car radio, calling it the 'Motorola' — a combination of 'motor' and 'Victrola'.",
+    "The first music video ever played on MTV was 'Video Killed the Radio Star' by The Buggles on August 1, 1981.",
+    "The term 'Hi-Fi' or 'High Fidelity' was coined in the 1930s to describe audio equipment that reproduced sound with minimal distortion.",
+    "FM radio was patented by Edwin Howard Armstrong in 1933, offering vastly superior audio fidelity and resistance to static compared to AM radio.",
+    "The highest-pitched sound humanly audible is around 20,000 Hertz, but many dogs can hear frequencies up to 45,000 Hertz.",
+    "MP3 compression relies heavily on psychoacoustics — removing sounds that the human brain naturally filters out or ignores due to louder adjacent frequencies.",
+    "The world's oldest surviving playable recording is a phonautogram from 1860, on which inventor Édouard-Léon Scott de Martinville sings the French folk song 'Au clair de la lune'.",
+    "Internet radio pioneer Carl Malamud launched the first online radio talk show, 'Internet Talk Radio', in 1993, interviewing computer experts weekly."
+  ];
+  const randomIndex = Math.floor(Math.random() * triviaFacts.length);
+  res.json({ trivia: triviaFacts[randomIndex] });
+});
+
 // 2. Radio Stations Search endpoint with Mirror Failover
 app.get('/api/radio/search', async (req, res) => {
   const {
@@ -1183,6 +1201,130 @@ app.get('/api/ai/insights', async (req, res) => {
         ? 'Gemini API quota/tier limit reached (429/RESOURCE_EXHAUSTED). Falling back to local audio insights.'
         : `Gemini API notice: ${errMsg}`
     ));
+  }
+});
+
+// 11. AI Smart Wake-up Station Recommendation
+app.post('/api/ai/smart-wakeup', async (req, res) => {
+  const {
+    alarmHour = 7,
+    alarmMinute = 0,
+    recentStations = [],
+    favorites = [],
+    availableStations = []
+  } = req.body;
+
+  const timeLabel = `${String(alarmHour).padStart(2, '0')}:${String(alarmMinute).padStart(2, '0')}`;
+  const isEarlyMorning = alarmHour >= 5 && alarmHour < 9;
+  const isLateMorning = alarmHour >= 9 && alarmHour < 12;
+  const isEveningOrNight = alarmHour >= 18 || alarmHour < 5;
+
+  const generateLocalFallback = (reason: string) => {
+    // Pick candidate station from favorites, recents, or available fallback
+    let candidate = favorites[0] || recentStations[0] || CURATED_FALLBACK_STATIONS[2]; // BBC Radio 1 default
+
+    if (isEarlyMorning) {
+      const morningMatch = [...favorites, ...recentStations, ...availableStations].find(s => {
+        const g = (s.genre || '').toLowerCase();
+        return g.includes('pop') || g.includes('news') || g.includes('talk') || g.includes('rock') || g.includes('top 40');
+      });
+      if (morningMatch) candidate = morningMatch;
+    } else if (isEveningOrNight) {
+      const chillMatch = [...favorites, ...recentStations, ...availableStations].find(s => {
+        const g = (s.genre || '').toLowerCase();
+        return g.includes('ambient') || g.includes('chill') || g.includes('jazz') || g.includes('lofi');
+      });
+      if (chillMatch) candidate = chillMatch;
+    }
+
+    let routineTag = "Morning Energizer";
+    let reasoning = `For your ${timeLabel} alarm, ${candidate.name} (${candidate.genre}) delivers an invigorating beat that gently pulls you out of deep sleep.`;
+
+    if (isEveningOrNight) {
+      routineTag = "Tranquil Night Shift";
+      reasoning = `Since your alarm is set for ${timeLabel}, ${candidate.name} provides smooth, low-fatigue acoustic textures so you wake up relaxed without a startle response.`;
+    } else if (isLateMorning) {
+      routineTag = "Mid-Morning Focus";
+      reasoning = `At ${timeLabel}, ${candidate.name} offers upbeat rhythm and crisp audio fidelity perfectly aligned with your active daytime routine.`;
+    }
+
+    return {
+      source: 'local_intelligent_fallback',
+      reason,
+      recommendedStationId: candidate.id,
+      recommendedStationName: candidate.name,
+      recommendedGenre: candidate.genre || 'Radio',
+      recommendedStreamUrl: candidate.streamUrl,
+      recommendedImageUrl: candidate.imageUrl,
+      matchScore: 96,
+      aiReasoning: reasoning,
+      suggestedGentleWindowMins: isEarlyMorning ? 4 : 3,
+      suggestedMinWakeVolume: 0.12,
+      suggestedMaxCeilingVolume: 0.85,
+      routineTag
+    };
+  };
+
+  try {
+    const ai = getGeminiClient();
+    if (!ai) {
+      return res.json(generateLocalFallback('GEMINI_API_KEY environment variable not set; using local smart algorithm'));
+    }
+
+    const pool = [...favorites, ...recentStations, ...availableStations, ...CURATED_FALLBACK_STATIONS];
+    const candidateSummaries = pool.slice(0, 10).map(s => `${s.name} (${s.genre})`).join(', ');
+
+    const prompt = `You are NeoTune AI Smart Wake-Up Assistant.
+A user has set an alarm for ${timeLabel} (Hour ${alarmHour}:${alarmMinute}).
+User's recent stations: ${recentStations.map((s: any) => s.name).join(', ') || 'None'}.
+User's favorites: ${favorites.map((s: any) => s.name).join(', ') || 'None'}.
+Available stations: ${candidateSummaries}.
+
+Select the single best station for their morning routine and explain why.
+Respond ONLY with a valid JSON object in this exact format:
+{
+  "stationName": "exact name from candidates",
+  "aiReasoning": "2 sentences explaining why this station matches their wake-up time and listening profile",
+  "matchScore": 98,
+  "suggestedGentleWindowMins": 4,
+  "routineTag": "Morning Energy Boost"
+}`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.7-flash',
+      contents: prompt
+    });
+
+    const text = response.text || '';
+    let parsed: any = null;
+    try {
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (jsonMatch) parsed = JSON.parse(jsonMatch[0]);
+    } catch {}
+
+    if (parsed && parsed.stationName) {
+      const matchedStation = pool.find(s => s.name.toLowerCase().includes(parsed.stationName.toLowerCase()) || parsed.stationName.toLowerCase().includes(s.name.toLowerCase())) || pool[0];
+
+      return res.json({
+        source: 'gemini_ai',
+        recommendedStationId: matchedStation.id,
+        recommendedStationName: matchedStation.name,
+        recommendedGenre: matchedStation.genre || 'Radio',
+        recommendedStreamUrl: matchedStation.streamUrl,
+        recommendedImageUrl: matchedStation.imageUrl,
+        matchScore: parsed.matchScore || 98,
+        aiReasoning: parsed.aiReasoning || `Recommended by NeoTune AI for your ${timeLabel} routine based on your recent listening habits.`,
+        suggestedGentleWindowMins: parsed.suggestedGentleWindowMins || 4,
+        suggestedMinWakeVolume: 0.12,
+        suggestedMaxCeilingVolume: 0.85,
+        routineTag: parsed.routineTag || "AI Smart Morning Routine"
+      });
+    }
+
+    return res.json(generateLocalFallback('Gemini returned unstructured format; using smart local matching'));
+  } catch (err: any) {
+    console.warn('[Gemini AI Smart Wakeup] Error:', err?.message || err);
+    return res.json(generateLocalFallback(`API notice: ${err?.message || err}`));
   }
 });
 

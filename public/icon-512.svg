@@ -1,52 +1,44 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <defs>
-    <!-- Background Dark Metallic Gradient -->
-    <radialGradient id="radialGlow512" cx="50%" cy="30%" r="70%">
-      <stop offset="0%" stop-color="#2A1448"/>
-      <stop offset="60%" stop-color="#120722"/>
-      <stop offset="100%" stop-color="#080212"/>
+    <!-- Background Dark Obsidian Violet Gradient -->
+    <radialGradient id="icon512Bg" cx="50%" cy="25%" r="75%">
+      <stop offset="0%" stop-color="#230E3D"/>
+      <stop offset="60%" stop-color="#110521"/>
+      <stop offset="100%" stop-color="#07020E"/>
     </radialGradient>
 
-    <!-- Cyberpunk Synthwave Neon Gradient -->
-    <linearGradient id="neonGradient512" x1="0%" y1="0%" x2="100%" y2="100%">
+    <!-- Vibrant Radio Wave Gradient (Cyan -> Violet -> Magenta) -->
+    <linearGradient id="icon512Wave" x1="0%" y1="0%" x2="100%" y2="0%">
       <stop offset="0%" stop-color="#00F0FF"/>
-      <stop offset="45%" stop-color="#A855F7"/>
-      <stop offset="85%" stop-color="#EC4899"/>
-      <stop offset="100%" stop-color="#F59E0B"/>
+      <stop offset="50%" stop-color="#A855F7"/>
+      <stop offset="100%" stop-color="#EC4899"/>
     </linearGradient>
 
-    <!-- Sharp Glow Filter -->
-    <filter id="sharpGlow512" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur stdDeviation="5" result="blur" />
-      <feMerge>
-        <feMergeNode in="blur" />
-        <feMergeNode in="SourceGraphic" />
-      </feMerge>
-    </filter>
+    <!-- Vibrant Equalizer Bar Gradient (Violet -> Magenta -> Rose) -->
+    <linearGradient id="icon512Bar" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#C084FC"/>
+      <stop offset="50%" stop-color="#E879F9"/>
+      <stop offset="100%" stop-color="#F43F5E"/>
+    </linearGradient>
   </defs>
 
-  <!-- Outer Squircle Base -->
-  <rect width="512" height="512" rx="120" fill="url(#radialGlow512)"/>
+  <!-- Squircle Base Canvas -->
+  <rect width="512" height="512" rx="116" fill="url(#icon512Bg)"/>
+  <rect width="504" height="504" x="4" y="4" rx="112" fill="none" stroke="url(#icon512Wave)" stroke-width="5" opacity="0.35"/>
 
-  <!-- Specular Rim Border -->
-  <rect width="504" height="504" x="4" y="4" rx="116" fill="none" stroke="url(#neonGradient512)" stroke-width="5" opacity="0.35"/>
+  <!-- Radio Waves (Concentric Arches) -->
+  <path d="M 96 240 A 160 160 0 0 1 416 240" fill="none" stroke="url(#icon512Wave)" stroke-width="24" stroke-linecap="round" opacity="0.85"/>
+  <path d="M 142 240 A 114 114 0 0 1 370 240" fill="none" stroke="url(#icon512Wave)" stroke-width="24" stroke-linecap="round"/>
 
-  <!-- Glowing Audio / Radio Icon Graphic -->
-  <g filter="url(#sharpGlow512)">
-    <!-- Radio Waves -->
-    <path d="M 100 190 A 165 165 0 0 1 412 190" fill="none" stroke="url(#neonGradient512)" stroke-width="18" stroke-linecap="round" opacity="0.75"/>
-    <path d="M 144 230 A 122 122 0 0 1 368 230" fill="none" stroke="url(#neonGradient512)" stroke-width="18" stroke-linecap="round" opacity="0.95"/>
+  <!-- 3 Equalizer Pillar Bars -->
+  <!-- Left Bar -->
+  <rect x="176" y="260" width="35" height="130" rx="17.5" fill="url(#icon512Bar)"/>
+  <!-- Center Tall Bar -->
+  <rect x="238.5" y="205" width="35" height="185" rx="17.5" fill="url(#icon512Bar)"/>
+  <!-- Right Bar -->
+  <rect x="301" y="260" width="35" height="130" rx="17.5" fill="url(#icon512Bar)"/>
 
-    <!-- Equalizer Bars -->
-    <rect x="165" y="278" width="28" height="112" rx="14" fill="url(#neonGradient512)"/>
-    <rect x="210" y="248" width="28" height="142" rx="14" fill="url(#neonGradient512)"/>
-    <rect x="255" y="213" width="28" height="177" rx="14" fill="url(#neonGradient512)"/>
-    <rect x="300" y="248" width="28" height="142" rx="14" fill="url(#neonGradient512)"/>
-    <rect x="345" y="278" width="28" height="112" rx="14" fill="url(#neonGradient512)"/>
-
-    <!-- Radio Broadcast Transmitter Beacon -->
-    <circle cx="256" cy="132" r="18" fill="#00F0FF"/>
-    <circle cx="256" cy="132" r="10" fill="#FFFFFF"/>
-  </g>
+  <!-- Glowing Transmitter Beacon Dot at Apex -->
+  <circle cx="256" cy="126" r="22" fill="#00F0FF"/>
+  <circle cx="256" cy="126" r="11" fill="#FFFFFF"/>
 </svg>
-

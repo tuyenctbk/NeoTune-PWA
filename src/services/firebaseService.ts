@@ -6,6 +6,8 @@ import {
   GoogleAuthProvider,
   GithubAuthProvider,
   TwitterAuthProvider,
+  FacebookAuthProvider,
+  OAuthProvider,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut,
@@ -32,7 +34,7 @@ import {
   Firestore
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
-import { RadioStation, PodcastShow, AlarmConfig, UserProfile, ThemeType, QueuedStation, VisualizerSkin, SyncStatusInfo, SyncState, ActivePlaybackSession, StationChatMessage, VisualizerCustomColors, PodcastProgress } from '../types';
+import { RadioStation, PodcastShow, AlarmConfig, UserProfile, ThemeType, QueuedStation, VisualizerSkin, SyncStatusInfo, SyncState, ActivePlaybackSession, VisualizerCustomColors, PodcastProgress } from '../types';
 import { storageService } from './storageService';
 
 let memoryDeviceId: string | null = null;
@@ -116,6 +118,15 @@ googleProvider.setCustomParameters({ prompt: 'select_account' });
 
 const githubProvider = new GithubAuthProvider();
 const twitterProvider = new TwitterAuthProvider();
+const facebookProvider = new FacebookAuthProvider();
+const appleProvider = new OAuthProvider('apple.com');
+const microsoftProvider = new OAuthProvider('microsoft.com');
+const linkedinProvider = new OAuthProvider('linkedin.com');
+const spotifyProvider = new OAuthProvider('spotify.com');
+const discordProvider = new OAuthProvider('discord.com');
+const twitchProvider = new OAuthProvider('twitch.tv');
+const yahooProvider = new OAuthProvider('yahoo.com');
+const redditProvider = new OAuthProvider('reddit.com');
 
 export interface RemoteContentConfig {
   trendingStations: RadioStation[];
@@ -438,6 +449,9 @@ class FirebaseService {
         if (data.settings.theme) storageService.saveTheme(data.settings.theme);
         if (data.settings.eqPreset) storageService.saveEQPreset(data.settings.eqPreset);
         if (typeof data.settings.batterySaver === 'boolean') storageService.setBatterySaver(data.settings.batterySaver);
+        if (data.settings.moodEqPresets && typeof data.settings.moodEqPresets === 'object') {
+          storageService.setMoodEqPresetsMap(data.settings.moodEqPresets);
+        }
       }
 
       this.lastSyncTime = Date.now();
@@ -469,9 +483,15 @@ class FirebaseService {
       (error.message && error.message.toLowerCase().includes('resource_exhausted'))
     );
 
+    const isPermissionError = error && (
+      (error.code === 'permission-denied') ||
+      (error.message && error.message.toLowerCase().includes('permission')) ||
+      (error.message && error.message.toLowerCase().includes('insufficient permissions'))
+    );
+
     if (isQuotaExceeded) {
       this.isQuotaExceeded = true;
-      console.warn(`[FirebaseService] Quota exceeded during ${action}. Falling back to offline local mode.`);
+      console.warn(`[FirebaseService] Quota exceeded during ${action}. Operating in Local Mode.`);
       this.updateSyncStatus('error', 'Cloud database quota reached. Operating in Local Mode.');
       
       // Clean up internal user doc listener
@@ -485,8 +505,11 @@ class FirebaseService {
         try { unsub(); } catch {}
       });
       this.activeSubscriptions.clear();
+    } else if (isPermissionError) {
+      console.warn(`[FirebaseService] Notice: ${action} permissions unavailable. Falling back to local offline configuration.`);
+      this.updateSyncStatus('synced', 'Operating in Local Mode');
     } else {
-      console.error(`[FirebaseService] Failed to ${action}:`, error);
+      console.warn(`[FirebaseService] Notice on ${action}:`, error?.message || error);
       this.updateSyncStatus('synced', 'Saved to local cache');
     }
   }
@@ -526,41 +549,161 @@ class FirebaseService {
     };
   }
 
-  public async triggerSyncNow(): Promise<void> {
+  public async triggerSyncNow(playbackOverride?: {
+    isPlaying?: boolean;
+    station?: RadioStation | null;
+    volume?: number;
+  }): Promise<{
+    success: boolean;
+    message: string;
+    timestamp: number;
+    syncedFavoritesCount: number;
+    syncedRecentsCount: number;
+    activeSession: {
+      isPlaying: boolean;
+      stationName: string | null;
+      stationId: string | null;
+    };
+    isGuest: boolean;
+  }> {
+    const timestamp = Date.now();
+    const favorites = storageService.getFavorites();
+    const recents = storageService.getRecents();
+    const alarm = storageService.getAlarmConfig();
+    const theme = storageService.getTheme();
+    const eqPreset = storageService.getEQPreset();
+    const customColors = storageService.getVisualizerCustomColors();
+    const visualizerSkin = storageService.getVisualizerSkin();
+
+    // Determine current playback session
+    let isPlaying = false;
+    let currentStation: RadioStation | null = null;
+    let volume = 0.8;
+
+    if (playbackOverride !== undefined) {
+      isPlaying = !!playbackOverride.isPlaying;
+      currentStation = playbackOverride.station || null;
+      if (typeof playbackOverride.volume === 'number') volume = playbackOverride.volume;
+    } else {
+      try {
+        const recents = storageService.getRecents();
+        if (recents && recents.length > 0) {
+          currentStation = recents[0];
+        }
+      } catch {}
+    }
+
+    const sessionData: ActivePlaybackSession = {
+      deviceId: getDeviceId(),
+      deviceName: getDeviceName(),
+      station: currentStation as RadioStation,
+      isPlaying: isPlaying && !!currentStation,
+      updatedAt: timestamp
+    };
+
     if (this.isQuotaExceeded) {
       this.updateSyncStatus('error', 'Cloud database quota reached. Operating in Local Mode.');
-      return;
+      return {
+        success: false,
+        message: 'Cloud database quota reached. Operating in Local Mode.',
+        timestamp,
+        syncedFavoritesCount: favorites.length,
+        syncedRecentsCount: recents.length,
+        activeSession: {
+          isPlaying: sessionData.isPlaying,
+          stationName: currentStation?.name || null,
+          stationId: currentStation?.id || null
+        },
+        isGuest: !this.currentUser
+      };
     }
+
     if (!this.currentUser) {
       this.updateSyncStatus('local', 'Local storage active');
-      return;
+      return {
+        success: true,
+        message: `Local cache synchronized with ${favorites.length} saved station${favorites.length === 1 ? '' : 's'}. Sign in to enable cross-device cloud sync with Firebase.`,
+        timestamp,
+        syncedFavoritesCount: favorites.length,
+        syncedRecentsCount: recents.length,
+        activeSession: {
+          isPlaying: sessionData.isPlaying,
+          stationName: currentStation?.name || null,
+          stationId: currentStation?.id || null
+        },
+        isGuest: true
+      };
     }
-    this.updateSyncStatus('syncing', 'Actively pushing and pulling Firestore updates...');
+
+    this.updateSyncStatus('syncing', 'Pushing local playback session and favorites to Firestore...');
     try {
-      const favorites = storageService.getFavorites();
-      const alarm = storageService.getAlarmConfig();
-      const theme = storageService.getTheme();
-      const eqPreset = storageService.getEQPreset();
+      const userRef = doc(db, 'users', this.currentUser.uid);
 
       await setDoc(
-        doc(db, 'users', this.currentUser.uid),
+        userRef,
         {
           favorites,
           favoritesCount: favorites.length,
+          activePlaybackSession: {
+            deviceId: sessionData.deviceId,
+            deviceName: sessionData.deviceName,
+            station: currentStation || null,
+            isPlaying: sessionData.isPlaying,
+            volume,
+            updatedAt: timestamp
+          },
+          recents: recents.slice(0, 20),
           alarmConfig: alarm,
-          alarmUpdatedAt: Date.now(),
-          settings: { theme, eqPreset },
-          updatedAt: Date.now()
+          alarmUpdatedAt: timestamp,
+          settings: {
+            theme,
+            eqPreset,
+            customColors,
+            visualizerSkin,
+            updatedAt: timestamp
+          },
+          lastManualSyncAt: timestamp,
+          updatedAt: timestamp
         },
         { merge: true }
       );
 
       await this.syncOfflineQueueOnReconnection();
       await this.pullAllCloudPreferences();
-      this.updateSyncStatus('synced', 'Successfully synced across all devices');
-    } catch (e) {
+      this.updateSyncStatus('synced', `Synced ${favorites.length} favorites & playback state to Firestore`);
+
+      const stationLabel = currentStation?.name ? `"${currentStation.name}"` : 'None';
+      const playStateLabel = sessionData.isPlaying ? `Live Streaming ${stationLabel}` : (currentStation ? `Standby (${stationLabel})` : 'Idle');
+
+      return {
+        success: true,
+        message: `Successfully pushed ${favorites.length} favorite station${favorites.length === 1 ? '' : 's'} and active playback state (${playStateLabel}) to Firebase cloud.`,
+        timestamp,
+        syncedFavoritesCount: favorites.length,
+        syncedRecentsCount: recents.length,
+        activeSession: {
+          isPlaying: sessionData.isPlaying,
+          stationName: currentStation?.name || null,
+          stationId: currentStation?.id || null
+        },
+        isGuest: false
+      };
+    } catch (e: any) {
       console.warn('Trigger sync error:', e);
-      this.updateSyncStatus('synced', 'Synced with offline persistent cache');
+      this.handleFirebaseSyncError('manual push sync', e);
+      return {
+        success: false,
+        message: e?.message || 'Failed to push updates to Firebase cloud. Saved to offline persistent cache.',
+        timestamp,
+        syncedFavoritesCount: favorites.length,
+        syncedRecentsCount: recents.length,
+        activeSession: {
+          isPlaying: sessionData.isPlaying,
+          stationName: currentStation?.name || null,
+          stationId: currentStation?.id || null
+        },
+        isGuest: false
+      };
     }
   }
 
@@ -596,6 +739,96 @@ class FirebaseService {
     } catch (err: any) {
       console.error('Twitter Sign In Error:', err);
       throw new Error(err.message || 'Failed to sign in with Twitter');
+    }
+  }
+
+  public async signInWithFacebook(): Promise<UserProfile | null> {
+    try {
+      const result = await signInWithPopup(auth, facebookProvider);
+      return this.mapUser(result.user);
+    } catch (err: any) {
+      console.error('Facebook Sign In Error:', err);
+      throw new Error(err.message || 'Failed to sign in with Facebook');
+    }
+  }
+
+  public async signInWithApple(): Promise<UserProfile | null> {
+    try {
+      const result = await signInWithPopup(auth, appleProvider);
+      return this.mapUser(result.user);
+    } catch (err: any) {
+      console.error('Apple Sign In Error:', err);
+      throw new Error(err.message || 'Failed to sign in with Apple');
+    }
+  }
+
+  public async signInWithMicrosoft(): Promise<UserProfile | null> {
+    try {
+      const result = await signInWithPopup(auth, microsoftProvider);
+      return this.mapUser(result.user);
+    } catch (err: any) {
+      console.error('Microsoft Sign In Error:', err);
+      throw new Error(err.message || 'Failed to sign in with Microsoft');
+    }
+  }
+
+  public async signInWithLinkedIn(): Promise<UserProfile | null> {
+    try {
+      const result = await signInWithPopup(auth, linkedinProvider);
+      return this.mapUser(result.user);
+    } catch (err: any) {
+      console.error('LinkedIn Sign In Error:', err);
+      throw new Error(err.message || 'Failed to sign in with LinkedIn');
+    }
+  }
+
+  public async signInWithSpotify(): Promise<UserProfile | null> {
+    try {
+      const result = await signInWithPopup(auth, spotifyProvider);
+      return this.mapUser(result.user);
+    } catch (err: any) {
+      console.error('Spotify Sign In Error:', err);
+      throw new Error(err.message || 'Failed to sign in with Spotify');
+    }
+  }
+
+  public async signInWithDiscord(): Promise<UserProfile | null> {
+    try {
+      const result = await signInWithPopup(auth, discordProvider);
+      return this.mapUser(result.user);
+    } catch (err: any) {
+      console.error('Discord Sign In Error:', err);
+      throw new Error(err.message || 'Failed to sign in with Discord');
+    }
+  }
+
+  public async signInWithTwitch(): Promise<UserProfile | null> {
+    try {
+      const result = await signInWithPopup(auth, twitchProvider);
+      return this.mapUser(result.user);
+    } catch (err: any) {
+      console.error('Twitch Sign In Error:', err);
+      throw new Error(err.message || 'Failed to sign in with Twitch');
+    }
+  }
+
+  public async signInWithYahoo(): Promise<UserProfile | null> {
+    try {
+      const result = await signInWithPopup(auth, yahooProvider);
+      return this.mapUser(result.user);
+    } catch (err: any) {
+      console.error('Yahoo Sign In Error:', err);
+      throw new Error(err.message || 'Failed to sign in with Yahoo');
+    }
+  }
+
+  public async signInWithReddit(): Promise<UserProfile | null> {
+    try {
+      const result = await signInWithPopup(auth, redditProvider);
+      return this.mapUser(result.user);
+    } catch (err: any) {
+      console.error('Reddit Sign In Error:', err);
+      throw new Error(err.message || 'Failed to sign in with Reddit');
     }
   }
 
@@ -905,6 +1138,7 @@ class FirebaseService {
     batterySaver?: boolean;
     autoPlay?: boolean;
     normalizeAudio?: boolean;
+    moodEqPresets?: Record<string, string>;
   }): Promise<void> {
     if (!this.currentUser || this.isQuotaExceeded) return;
     this.updateSyncStatus('syncing', 'Syncing settings to Firestore...');
@@ -1346,65 +1580,6 @@ class FirebaseService {
         tag: 'neotune-alarm',
         requireInteraction: true
       });
-    }
-  }
-
-  // --- Real-time Station Community Live Chat ---
-  public subscribeStationChat(stationId: string, cb: (messages: StationChatMessage[]) => void): () => void {
-    if (!stationId) return () => {};
-    try {
-      const chatRef = collection(db, 'station_chats', stationId, 'messages');
-      const q = query(chatRef, orderBy('createdAt', 'asc'), limit(50));
-
-      const unsub = onSnapshot(
-        q,
-        (snap) => {
-          const msgs: StationChatMessage[] = snap.docs.map(docSnap => {
-            const data = docSnap.data();
-            return {
-              id: docSnap.id,
-              stationId,
-              userId: data.userId || 'anon',
-              userName: data.userName || 'Listener',
-              userPhoto: data.userPhoto || undefined,
-              text: data.text || '',
-              createdAt: data.createdAt || Date.now()
-            };
-          });
-          cb(msgs);
-        },
-        (err) => {
-          this.handleFirebaseSyncError('station chat listener', err);
-        }
-      );
-      return this.trackSubscription(unsub);
-    } catch (e) {
-      console.warn('Subscribe station chat error:', e);
-      return () => {};
-    }
-  }
-
-  public async sendStationChatMessage(stationId: string, text: string, customName?: string, customPhoto?: string): Promise<void> {
-    if (!stationId || !text.trim()) return;
-    try {
-      const cleanText = text.trim().slice(0, 300); // Sanitize max length
-      const user = this.currentUser;
-      const userName = customName || user?.displayName || 'Listener ' + Math.floor(1000 + Math.random() * 9000);
-      const userId = user?.uid || getDeviceId();
-      const userPhoto = customPhoto || user?.photoURL || undefined;
-
-      const chatRef = collection(db, 'station_chats', stationId, 'messages');
-      await addDoc(chatRef, {
-        stationId,
-        userId,
-        userName,
-        userPhoto,
-        text: cleanText,
-        createdAt: Date.now()
-      });
-    } catch (e) {
-      console.error('Failed to send station chat message:', e);
-      throw e;
     }
   }
 }

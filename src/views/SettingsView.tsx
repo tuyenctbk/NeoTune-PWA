@@ -37,7 +37,9 @@ import {
   Play,
   Pause,
   Eye,
-  Layers
+  Layers,
+  RefreshCw,
+  X
 } from 'lucide-react';
 import { ThemeType, FilterConfig, UserProfile, VisualizerSkin, RadioStation, GestureConfig, VisualizerCustomColors, GestureAction } from '../types';
 import { storageService } from '../services/storageService';
@@ -101,7 +103,26 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [autoPlay, setAutoPlay] = useState<boolean>(() => storageService.getAutoPlay());
   const [normalizeAudio, setNormalizeAudio] = useState<boolean>(() => storageService.getNormalizeAudio());
   const [targetNormalizeLevel, setTargetNormalizeLevel] = useState<number>(() => storageService.getTargetNormalizeLevel());
+  const [volumeSafetyLockEnabled, setVolumeSafetyLockEnabled] = useState<boolean>(() => storageService.getVolumeSafetyLockEnabled());
+  const [volumeSafetyLockThreshold, setVolumeSafetyLockThreshold] = useState<number>(() => storageService.getVolumeSafetyLockThreshold());
+
+  const handleToggleVolumeSafetyLock = () => {
+    const next = !volumeSafetyLockEnabled;
+    setVolumeSafetyLockEnabled(next);
+    storageService.setVolumeSafetyLockEnabled(next);
+    setCopiedStatus(next ? `Volume Safety Lock Activated (${Math.round(volumeSafetyLockThreshold * 100)}% Cap)` : 'Volume Safety Lock Disabled');
+    setTimeout(() => setCopiedStatus(''), 2500);
+  };
+
+  const handleVolumeSafetyLockThresholdChange = (val: number) => {
+    setVolumeSafetyLockThreshold(val);
+    storageService.setVolumeSafetyLockThreshold(val);
+    if (audioEngine.getState().volume > val && volumeSafetyLockEnabled) {
+      audioEngine.setVolume(val);
+    }
+  };
   const [crossfadeDurationMs, setCrossfadeDurationMs] = useState<number>(() => storageService.getCrossfadeDurationMs());
+  const [autoCrossfadeEnabled, setAutoCrossfadeEnabled] = useState<boolean>(() => storageService.getAutoCrossfadeEnabled());
   const [autoDetectTheme, setAutoDetectTheme] = useState<boolean>(() => storageService.getAutoDetectTheme());
   const [timeBasedTheme, setTimeBasedThemeState] = useState<boolean>(() => storageService.getTimeBasedTheme());
   const [gestureConfig, setGestureConfig] = useState<GestureConfig>(() => storageService.getGestureConfig());
@@ -158,6 +179,47 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   useEffect(() => {
     setPreviewTheme(currentTheme);
   }, [currentTheme]);
+
+  // Manual Cloud Sync State & Trigger
+  const [syncingCloud, setSyncingCloud] = useState(false);
+  const [cloudSyncFeedback, setCloudSyncFeedback] = useState<{
+    success: boolean;
+    message: string;
+    timestamp: number;
+    syncedFavoritesCount: number;
+    activeSession: {
+      isPlaying: boolean;
+      stationName: string | null;
+    };
+  } | null>(null);
+
+  const handleCloudSyncNow = async () => {
+    if (syncingCloud) return;
+    triggerHaptic('medium');
+    setSyncingCloud(true);
+    try {
+      const audioState = audioEngine.getState();
+      const res = await firebaseService.triggerSyncNow({
+        isPlaying: audioState.isPlaying,
+        station: audioState.currentStation,
+        volume: audioState.volume
+      });
+      setCloudSyncFeedback(res);
+      setCopiedStatus(res.message);
+      setTimeout(() => setCopiedStatus(''), 4000);
+      if (res.success) {
+        triggerHaptic('selection');
+      } else {
+        triggerHaptic('warning');
+      }
+    } catch (err: any) {
+      console.error('Manual sync failed in SettingsView:', err);
+      setCopiedStatus(err?.message || 'Sync failed. Please check internet connection.');
+      setTimeout(() => setCopiedStatus(''), 3500);
+    } finally {
+      setSyncingCloud(false);
+    }
+  };
 
   // Cache Management Dashboard states & methods
   const [cacheItems, setCacheItems] = useState<{ key: string; name: string; sizeBytes: number; type: 'station' | 'podcast' | 'episodes' | 'countries' | 'unknown' }[]>([]);
@@ -1754,6 +1816,61 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           )}
         </div>
 
+        {/* Volume Safety Lock Feature */}
+        <div className="rounded-xl bg-white/5 border border-white/5 overflow-hidden transition-colors">
+          <div
+            onClick={handleToggleVolumeSafetyLock}
+            className="flex items-center justify-between p-3.5 hover:bg-white/5 cursor-pointer transition-colors"
+          >
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-emerald-500/15 text-emerald-400">
+                <Shield className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="text-sm font-semibold text-[var(--text-primary)] flex items-center gap-2">
+                  Volume Safety Lock
+                  <span className="px-2 py-0.2 rounded-full text-[9px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 uppercase">
+                    Hearing Protection
+                  </span>
+                </div>
+                <div className="text-xs text-[var(--text-muted)]">
+                  Prevents playback and alarm volume from exceeding a safety threshold to protect hearing
+                </div>
+              </div>
+            </div>
+            <div
+              className={`w-6 h-6 rounded-lg flex items-center justify-center transition-colors shrink-0 ${
+                volumeSafetyLockEnabled ? 'bg-emerald-500 text-black font-bold' : 'bg-white/10 text-transparent'
+              }`}
+            >
+              ✓
+            </div>
+          </div>
+
+          {volumeSafetyLockEnabled && (
+            <div className="px-3.5 pb-3.5 pt-1 border-t border-white/5 bg-black/20 space-y-2">
+              <div className="flex items-center justify-between text-xs font-medium text-[var(--text-secondary)]">
+                <span>Maximum Allowed Volume Threshold</span>
+                <span className="text-emerald-400 font-bold">{Math.round(volumeSafetyLockThreshold * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min="0.30"
+                max="0.85"
+                step="0.05"
+                value={volumeSafetyLockThreshold}
+                onChange={(e) => handleVolumeSafetyLockThresholdChange(parseFloat(e.target.value))}
+                className="w-full accent-emerald-400 h-1.5 bg-black/40 rounded-lg cursor-pointer"
+              />
+              <div className="flex justify-between text-[10px] text-[var(--text-muted)]">
+                <span>30% (Quiet)</span>
+                <span>70% (Recommended)</span>
+                <span>85% (Max Guard)</span>
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Smooth Station Cross-Fade Duration */}
         <div className="p-3.5 rounded-xl bg-white/5 border border-white/5 transition-colors space-y-2.5">
           <div className="flex items-center justify-between">
@@ -1778,12 +1895,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </span>
           </div>
 
-          <div className="grid grid-cols-4 gap-2 pt-1">
+          <div className="grid grid-cols-5 gap-2 pt-1">
             {[
               { ms: 0, label: 'Off' },
               { ms: 300, label: '300ms' },
               { ms: 500, label: '500ms' },
-              { ms: 1000, label: '1000ms' }
+              { ms: 1000, label: '1000ms' },
+              { ms: 2000, label: '2000ms (Auto)' }
             ].map(opt => (
               <button
                 key={opt.ms}
@@ -1798,6 +1916,32 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 {opt.label}
               </button>
             ))}
+          </div>
+
+          <div className="mt-3 pt-3 border-t border-white/5 flex items-center justify-between">
+            <div className="space-y-0.5">
+              <span className="text-xs font-bold text-white">Car Mode Auto-Crossfade (2s)</span>
+              <p className="text-[11px] text-[var(--text-muted)]">
+                Automatically applies a smooth 2-second volume blend when switching channels
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const next = !autoCrossfadeEnabled;
+                setAutoCrossfadeEnabled(next);
+                storageService.setAutoCrossfadeEnabled(next);
+                audioEngine.setAutoCrossfadeEnabled(next);
+                triggerHaptic('selection');
+              }}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
+                autoCrossfadeEnabled
+                  ? 'bg-cyan-500 text-black border-cyan-400 shadow-md shadow-cyan-500/30 font-black'
+                  : 'bg-white/5 border-white/10 text-slate-300'
+              }`}
+            >
+              {autoCrossfadeEnabled ? 'Enabled (2s)' : 'Disabled'}
+            </button>
           </div>
         </div>
 
@@ -2119,7 +2263,31 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </span>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {/* 1. Force Cloud Sync Now */}
+          <button
+            onClick={handleCloudSyncNow}
+            disabled={syncingCloud}
+            className={`p-3.5 rounded-xl border text-left transition-all flex items-center gap-3 cursor-pointer group ${
+              syncingCloud
+                ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
+                : 'bg-gradient-to-br from-emerald-500/10 to-teal-500/10 hover:from-emerald-500/20 hover:to-teal-500/20 border-emerald-500/25 hover:border-emerald-500/50'
+            }`}
+          >
+            <div className="p-2.5 rounded-lg bg-emerald-500/20 text-emerald-400 group-hover:scale-110 transition-transform shrink-0">
+              <RefreshCw className={`w-4 h-4 ${syncingCloud ? 'animate-spin' : ''}`} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-xs font-bold text-emerald-300 group-hover:text-emerald-200 transition-colors flex items-center gap-1.5">
+                <span>{syncingCloud ? 'Syncing Now...' : 'Sync to Cloud Now'}</span>
+              </div>
+              <div className="text-[11px] text-[var(--text-muted)]">
+                Push live playback state & favorites to Firestore
+              </div>
+            </div>
+          </button>
+
+          {/* 2. Export NeoTune JSON Configuration */}
           <button
             onClick={handleExportFavorites}
             className="p-3.5 rounded-xl bg-white/5 hover:bg-purple-500/20 border border-white/10 hover:border-purple-500/30 text-left transition-all flex items-center gap-3 cursor-pointer group"
@@ -2129,46 +2297,71 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
             <div className="min-w-0 flex-1">
               <div className="text-xs font-bold text-[var(--text-primary)] group-hover:text-purple-300 transition-colors">
-                Export NeoTune Configuration
+                Export NeoTune Config
               </div>
               <div className="text-[11px] text-[var(--text-muted)]">
-                Downloads all cached favorites, station settings and alarms
+                Downloads favorites, DSP & alarms as JSON
               </div>
             </div>
           </button>
 
+          {/* 3. Export Listen History CSV */}
           <button
             onClick={handleExportCSV}
-            className="p-3.5 rounded-xl bg-white/5 hover:bg-emerald-500/20 border border-white/10 hover:border-emerald-500/30 text-left transition-all flex items-center gap-3 cursor-pointer group"
+            className="p-3.5 rounded-xl bg-white/5 hover:bg-sky-500/20 border border-white/10 hover:border-sky-500/30 text-left transition-all flex items-center gap-3 cursor-pointer group"
           >
-            <div className="p-2.5 rounded-lg bg-emerald-500/20 text-emerald-300 group-hover:scale-110 transition-transform shrink-0">
+            <div className="p-2.5 rounded-lg bg-sky-500/20 text-sky-300 group-hover:scale-110 transition-transform shrink-0">
               <Download className="w-4 h-4" />
             </div>
             <div className="min-w-0 flex-1">
-              <div className="text-xs font-bold text-[var(--text-primary)] group-hover:text-emerald-300 transition-colors">
-                Download Listen History (CSV)
+              <div className="text-xs font-bold text-[var(--text-primary)] group-hover:text-sky-300 transition-colors">
+                Listen History (CSV)
               </div>
               <div className="text-[11px] text-[var(--text-muted)]">
-                Exports last 50 listened-to stations as CSV file
+                Exports last 50 listened stations as CSV
               </div>
             </div>
           </button>
 
+          {/* 4. Import JSON Configuration */}
           <label className="p-3.5 rounded-xl bg-white/5 hover:bg-cyan-500/20 border border-white/10 hover:border-cyan-500/30 text-left transition-all flex items-center gap-3 cursor-pointer group">
             <div className="p-2.5 rounded-lg bg-cyan-500/20 text-cyan-300 group-hover:scale-110 transition-transform shrink-0">
               <Upload className="w-4 h-4" />
             </div>
             <div className="min-w-0 flex-1">
               <div className="text-xs font-bold text-[var(--text-primary)] group-hover:text-cyan-300 transition-colors">
-                Import Configuration File
+                Import JSON Config
               </div>
               <div className="text-[11px] text-[var(--text-muted)]">
-                Restore favorites, queued stations and equalizer setup
+                Restore favorites & equalizer setup
               </div>
             </div>
             <input type="file" accept=".json" onChange={handleImportFavorites} className="hidden" />
           </label>
         </div>
+
+        {/* Cloud Sync Feedback in Backup section */}
+        {cloudSyncFeedback && (
+          <div
+            className={`p-3.5 rounded-xl border flex items-center justify-between gap-3 text-xs transition-all animate-fadeIn ${
+              cloudSyncFeedback.success
+                ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+                : 'bg-rose-500/15 border-rose-500/30 text-rose-300'
+            }`}
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span className="truncate">{cloudSyncFeedback.message}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setCloudSyncFeedback(null)}
+              className="p-1 text-[var(--text-muted)] hover:text-white transition-colors cursor-pointer shrink-0"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
 
         <div className="pt-2 border-t border-white/5 flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-2">

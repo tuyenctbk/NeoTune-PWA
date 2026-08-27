@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import {
   Search,
   Globe,
@@ -8,6 +9,7 @@ import {
   Filter,
   X,
   ChevronRight,
+  ChevronDown,
   Zap,
   Cloud,
   History,
@@ -29,7 +31,10 @@ import {
   Guitar,
   Headphones,
   Gauge,
-  HelpCircle
+  HelpCircle,
+  Tag,
+  LayoutGrid,
+  List
 } from 'lucide-react';
 import { RadioStation, CountryInfo, FilterConfig, UserProfile, QueuedStation } from '../types';
 import { apiService } from '../services/apiService';
@@ -42,6 +47,7 @@ import { ScrollToTopButton } from '../components/ScrollToTopButton';
 import { NowPlayingStudioFragment } from '../components/NowPlayingStudioFragment';
 import { AddStationModal } from '../components/dialogs/AddStationModal';
 import { CategoryNavigation } from '../components/CategoryNavigation';
+import { GlobalMapVisualizer } from '../components/GlobalMapVisualizer';
 import { useTranslation } from '../services/i18n';
 
 import { triggerHaptic } from '../utils/haptics';
@@ -52,6 +58,7 @@ interface RadioViewProps {
   onOpenCountryPicker: () => void;
   selectedCountryName: string;
   selectedCountryCode: string;
+  onSelectCountry?: (name: string, code: string) => void;
   onSetAlarm: (station: RadioStation) => void;
   onShareStation: (station: RadioStation) => void;
   filterConfig: FilterConfig;
@@ -92,6 +99,7 @@ export const RadioView: React.FC<RadioViewProps> = ({
   onOpenCountryPicker,
   selectedCountryName,
   selectedCountryCode,
+  onSelectCountry,
   onSetAlarm,
   onShareStation,
   filterConfig,
@@ -107,11 +115,16 @@ export const RadioView: React.FC<RadioViewProps> = ({
   const [trendingStations, setTrendingStations] = useState<RadioStation[]>([]);
   const [topSharedStations, setTopSharedStations] = useState<RadioStation[]>([]);
   const [genreTags, setGenreTags] = useState<string[]>(DEFAULT_GENRE_TAGS);
+
   const [isRemoteTags, setIsRemoteTags] = useState<boolean>(false);
   const [remoteBanner, setRemoteBanner] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTag, setActiveTag] = useState('All Genres');
+  const [activeMoodTag, setActiveMoodTag] = useState<string>('All Moods');
+  const moodTags = useMemo(() => ['All Moods', ...storageService.getAllMoodTags()], []);
+  const timeBasedMood = useMemo(() => storageService.getTimeBasedMoodInfo(), []);
+  const [isMoodIntelligenceActive, setIsMoodIntelligenceActive] = useState(false);
   const [currentStationId, setCurrentStationId] = useState<string | null>(null);
   const [activePlayingStation, setActivePlayingStation] = useState<RadioStation | null>(() => audioEngine.getState().currentStation);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -138,15 +151,64 @@ export const RadioView: React.FC<RadioViewProps> = ({
   const [popularStations, setPopularStations] = useState<RadioStation[]>([]);
   const [popularLoading, setPopularLoading] = useState(false);
   const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const [layoutPreference, setLayoutPreference] = useState<'compact' | 'large'>(() => storageService.getLayoutPreference());
 
   // Sorting & Custom Station & Quality Filter States
   const [sortBy, setSortBy] = useState<SortOption>('popular');
   const [preferredQuality, setPreferredQuality] = useState<'all' | 'high_quality'>(() => storageService.getPreferredQuality());
   const [isAddCustomModalOpen, setIsAddCustomModalOpen] = useState(false);
   const [customStations, setCustomStations] = useState<RadioStation[]>(() => storageService.getCustomStations());
+
+  // Dynamically build genreTags to include default tags AND any custom tags from customStations!
+  useEffect(() => {
+    const allCustomTagsSet = new Set<string>();
+    customStations.forEach(st => {
+      if (st.customTags) {
+        st.customTags.forEach(t => {
+          if (t.trim()) {
+            const formatted = t.trim().split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+            allCustomTagsSet.add(formatted);
+          }
+        });
+      }
+    });
+
+    const combined = Array.from(new Set([
+      'All Genres',
+      'Custom Streams',
+      ...Array.from(allCustomTagsSet),
+      ...DEFAULT_GENRE_TAGS.filter(g => g !== 'All Genres' && g !== 'Custom Streams')
+    ]));
+    setGenreTags(combined);
+  }, [customStations]);
+
   const [recentlyAddedStations, setRecentlyAddedStations] = useState<RadioStation[]>(() => storageService.getRecentlyAddedStations(5));
-  const [stationLimit, setStationLimit] = useState<number>(96);
+  const [stationLimit, setStationLimit] = useState<number>(60);
   const [isLoadingMore, setIsLoadingMore] = useState<boolean>(false);
+  const [hasMore, setHasMore] = useState<boolean>(true);
+
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+
+  // Centralized Collapsible Accordion sections state (only one main section expanded at a time, persistent across reloads)
+  type CollapsibleSection = 'queue' | 'recent' | 'custom' | 'map';
+
+  const [activeSection, setActiveSection] = useState<CollapsibleSection | null>(() => {
+    return (storageService.getActiveAccordionSection('recent') || null) as CollapsibleSection | null;
+  });
+
+  const handleToggleSection = useCallback((section: CollapsibleSection) => {
+    triggerHaptic('light');
+    setActiveSection((current) => {
+      const next = current === section ? null : section;
+      storageService.setActiveAccordionSection(next);
+      return next;
+    });
+  }, []);
+
+  const isQueueExpanded = activeSection === 'queue';
+  const isRecentExpanded = activeSection === 'recent';
+  const isCustomShelfExpanded = activeSection === 'custom';
+  const isMapExpanded = activeSection === 'map';
 
   const [favorites, setFavorites] = useState<RadioStation[]>(() => storageService.getFavorites());
   const favoriteIds = useMemo(() => new Set(favorites.map((f) => f.id)), [favorites]);
@@ -226,7 +288,7 @@ export const RadioView: React.FC<RadioViewProps> = ({
     } catch (e) {
       console.warn('[RadioView] Silent background cache refresh exception:', e);
     }
-  }, [activeTag, searchQuery, selectedCountryName, selectedCountryCode, sortBy]);
+  }, [activeTag, searchQuery, selectedCountryName, selectedCountryCode, sortBy, stationLimit]);
 
   // Periodic Foreground Refresh Timer (every 3 minutes) & Visibility Change Trigger
   useEffect(() => {
@@ -389,15 +451,20 @@ export const RadioView: React.FC<RadioViewProps> = ({
     };
   }, []);
 
-  // Reset pagination limit when search filters change
+  // Reset pagination limit and hasMore when search filters change
   useEffect(() => {
-    setStationLimit(96);
+    setStationLimit(60);
+    setHasMore(true);
   }, [searchQuery, activeTag, selectedCountryName, selectedCountryCode, sortBy]);
 
   // Fetch stations with debounced query & tag / country filters & sorting
   useEffect(() => {
     let active = true;
-    setLoading(true);
+    if (stationLimit === 60) {
+      setLoading(true);
+    } else {
+      setIsLoadingMore(true);
+    }
 
     const timer = setTimeout(() => {
       if (activeTag === 'Custom Streams') {
@@ -409,6 +476,8 @@ export const RadioView: React.FC<RadioViewProps> = ({
         if (active) {
           setStations(filtered);
           setLoading(false);
+          setIsLoadingMore(false);
+          setHasMore(false);
         }
         return;
       }
@@ -428,20 +497,37 @@ export const RadioView: React.FC<RadioViewProps> = ({
       }).then((res) => {
         if (!active) return;
         const fetched = res.stations || [];
-        // If searching with a query and we have matching custom stations, prepend them
-        if (searchQuery.trim()) {
-          const matchingCustoms = storageService.getCustomStations().filter(
-            c => c.name.toLowerCase().includes(searchQuery.toLowerCase()) || c.genre.toLowerCase().includes(searchQuery.toLowerCase())
-          );
-          const map = new Map<string, RadioStation>();
-          matchingCustoms.forEach(c => map.set(c.id, c));
-          fetched.forEach(s => {
-            if (!map.has(s.id)) map.set(s.id, s);
-          });
-          setStations(Array.from(map.values()));
+        
+        // Determine if more stations are available
+        if (fetched.length < stationLimit || fetched.length === 0) {
+          setHasMore(false);
         } else {
-          setStations(fetched);
+          setHasMore(true);
         }
+
+        // Prepend custom stations that match either the search query or the activeTag (if not All Genres)
+        const activeTagLower = activeTag.toLowerCase();
+        const matchingCustoms = storageService.getCustomStations().filter(c => {
+          const matchesQuery = searchQuery.trim()
+            ? (c.name.toLowerCase().includes(searchQuery.toLowerCase()) || c.genre.toLowerCase().includes(searchQuery.toLowerCase()))
+            : true;
+          
+          let matchesTag = true;
+          if (activeTag !== 'All Genres') {
+            const hasCustomTag = c.customTags && c.customTags.some(t => t.toLowerCase() === activeTagLower);
+            const matchesGenre = c.genre.toLowerCase() === activeTagLower;
+            matchesTag = hasCustomTag || matchesGenre;
+          }
+          
+          return matchesQuery && matchesTag;
+        });
+
+        const map = new Map<string, RadioStation>();
+        matchingCustoms.forEach(c => map.set(c.id, c));
+        fetched.forEach(s => {
+          if (!map.has(s.id)) map.set(s.id, s);
+        });
+        setStations(Array.from(map.values()));
         setLoading(false);
         setIsLoadingMore(false);
 
@@ -450,6 +536,10 @@ export const RadioView: React.FC<RadioViewProps> = ({
           storageService.saveSearchQuery(searchQuery.trim());
           setSearchHistory(storageService.getSearchHistory());
         }
+      }).catch(() => {
+        if (!active) return;
+        setLoading(false);
+        setIsLoadingMore(false);
       });
     }, 350);
 
@@ -459,11 +549,55 @@ export const RadioView: React.FC<RadioViewProps> = ({
     };
   }, [searchQuery, activeTag, selectedCountryName, selectedCountryCode, sortBy, stationLimit]);
 
-  const handleLoadMore = () => {
+  const handleLoadMore = useCallback(() => {
+    if (loading || isLoadingMore || !hasMore || activeTag === 'Custom Streams') return;
     triggerHaptic('light');
     setIsLoadingMore(true);
     setStationLimit(prev => prev + 48);
-  };
+  }, [loading, isLoadingMore, hasMore, activeTag]);
+
+  // Infinite Scroll IntersectionObserver + Window Scroll listener backup
+  useEffect(() => {
+    if (loading || isLoadingMore || !hasMore || activeTag === 'Custom Streams') return;
+
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const first = entries[0];
+        if (first && first.isIntersecting && !isLoadingMore && !loading && hasMore) {
+          handleLoadMore();
+        }
+      },
+      { root: null, rootMargin: '400px 0px', threshold: 0.01 }
+    );
+
+    observer.observe(sentinel);
+
+    // Backup scroll event listener for rapid fling gestures
+    let scrollTimeout: any = null;
+    const handleScroll = () => {
+      if (scrollTimeout) return;
+      scrollTimeout = setTimeout(() => {
+        scrollTimeout = null;
+        if (typeof window === 'undefined') return;
+        const scrollPosition = window.innerHeight + window.scrollY;
+        const threshold = document.documentElement.offsetHeight - 500;
+        if (scrollPosition >= threshold && !isLoadingMore && !loading && hasMore) {
+          handleLoadMore();
+        }
+      }, 150);
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('scroll', handleScroll);
+      if (scrollTimeout) clearTimeout(scrollTimeout);
+    };
+  }, [loading, isLoadingMore, hasMore, activeTag, handleLoadMore]);
 
   // AI-Driven Recommendation Engine:
   // Analyzes user's favorite genres and listening history to suggest personalized live streams
@@ -576,9 +710,27 @@ export const RadioView: React.FC<RadioViewProps> = ({
         if (isNaN(numericBitrate) || numericBitrate < 128) return false;
       }
 
+      // 7. Custom Mood Tag Filter
+      if (activeMoodTag !== 'All Moods') {
+        const targetTagLower = activeMoodTag.toLowerCase();
+        const stationTags = storageService.getStationTags(st.id);
+        const hasTag = stationTags.some(t => t.toLowerCase() === targetTagLower);
+        const text = `${st.name} ${st.genre}`.toLowerCase();
+        if (!hasTag && !text.includes(targetTagLower)) return false;
+      }
+
+      // 8. Time-Based Mood Intelligence Filter
+      if (isMoodIntelligenceActive) {
+        const kws = timeBasedMood.keywords;
+        const text = `${st.name} ${st.genre} ${(st.customTags || []).join(' ')}`.toLowerCase();
+        const matchesKeyword = kws.some(kw => text.includes(kw));
+        const matchesRecent = recents.some(r => r.id === st.id || (r.genre && st.genre && r.genre.toLowerCase() === st.genre.toLowerCase()));
+        if (!matchesKeyword && !matchesRecent) return false;
+      }
+
       return true;
     });
-  }, [stations, filterConfig, preferredQuality]);
+  }, [stations, filterConfig, preferredQuality, activeMoodTag, isMoodIntelligenceActive, timeBasedMood, recents]);
 
   // Apply Deterministic Multi-Option Sorting (Popular, Latest Added, Alphabetical)
   const sortedStations = useMemo(() => {
@@ -782,7 +934,7 @@ export const RadioView: React.FC<RadioViewProps> = ({
               <p className="text-sm font-bold text-[var(--text-primary)]">No activity data available yet</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5">
+            <div className={layoutPreference === 'compact' ? 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5' : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5'}>
               {popularStations.map((station) => (
                 <StationCard
                   key={`popular_tab_${station.id}`}
@@ -796,6 +948,7 @@ export const RadioView: React.FC<RadioViewProps> = ({
                   onSetAlarm={onSetAlarm}
                   onShare={onShareStation}
                   onBlockStation={onBlockStation}
+                  isCompact={layoutPreference === 'compact'}
                 />
               ))}
             </div>
@@ -842,7 +995,7 @@ export const RadioView: React.FC<RadioViewProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5">
+          <div className={layoutPreference === 'compact' ? 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5' : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5'}>
             {recommendedStations.map((station) => (
               <StationCard
                 key={`rec_tab_${station.id}`}
@@ -856,6 +1009,7 @@ export const RadioView: React.FC<RadioViewProps> = ({
                 onSetAlarm={onSetAlarm}
                 onShare={onShareStation}
                 onBlockStation={onBlockStation}
+                isCompact={layoutPreference === 'compact'}
               />
             ))}
           </div>
@@ -889,6 +1043,19 @@ export const RadioView: React.FC<RadioViewProps> = ({
         </div>
       )}
 
+      {/* Interactive Global Map Tuner Visualizer */}
+      <GlobalMapVisualizer
+        stations={stations}
+        selectedCountryCode={selectedCountryCode}
+        onSelectCountry={(name, code) => {
+          if (onSelectCountry) {
+            onSelectCountry(name, code);
+          }
+        }}
+        isExpanded={isMapExpanded}
+        onToggleExpand={() => handleToggleSection('map')}
+      />
+
       {/* Unified Category & Genre Navigation Chip List Component */}
       <CategoryNavigation
         tags={genreTags}
@@ -897,363 +1064,194 @@ export const RadioView: React.FC<RadioViewProps> = ({
         isRemoteTags={isRemoteTags}
       />
 
-      {/* Firebase Remote Config Announcement Banner (collapses when filtering) */}
-      {remoteBanner && !searchQuery && (activeTag === 'All' || activeTag === 'All Genres') && (
-        <div className="p-3.5 rounded-2xl bg-gradient-to-r from-purple-500/20 via-pink-500/20 to-sky-500/20 border border-white/15 backdrop-blur-xl flex items-center justify-between gap-3 text-xs shadow-lg shadow-black/20">
-          <div className="flex items-center gap-2.5">
-            <div className="p-1.5 rounded-xl bg-white/10 text-[var(--accent-primary)]">
-              <Sparkles className="w-4 h-4" />
-            </div>
-            <span className="font-semibold text-white">{remoteBanner}</span>
-          </div>
-          <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-white/10 text-[var(--text-muted)] border border-white/10 shrink-0">
-            Cloud Notice
-          </span>
-        </div>
-      )}
-
-      {/* 1. AI-Driven 'Recommended for You' Section (collapses when filtering for compact mobile view) */}
-      {!searchQuery && (activeTag === 'All' || activeTag === 'All Genres') && !selectedCountryName && recommendedStations.length > 0 && (
-        <div className="p-4 sm:p-5 rounded-3xl bg-gradient-to-br from-indigo-500/10 via-[var(--surface-main)]/80 to-purple-500/10 backdrop-blur-xl border border-indigo-500/20 shadow-xl shadow-black/20 space-y-3.5">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <div className="flex items-center gap-2.5">
-              <div className="p-2 rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
-                <Sparkles className="w-4 h-4 animate-spin" style={{ animationDuration: '6s' }} />
-              </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="text-sm font-bold uppercase tracking-wider text-[var(--text-primary)]">
-                  {t('recommended', 'Recommended')}
-                </h3>
-                <span className="px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-[10px] font-bold">
-                  AI
+      {/* Time-Based Mood Intelligence Banner & Filter Control */}
+      <div className="p-3.5 rounded-2xl bg-gradient-to-r from-purple-900/30 via-indigo-900/20 to-purple-900/30 border border-purple-500/25 shadow-lg space-y-2">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">{timeBasedMood.icon}</span>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-black text-purple-200 uppercase tracking-wider">
+                  Mood Intelligence: {timeBasedMood.title}
                 </span>
-                <button
-                  onClick={() => {
-                    triggerHaptic('selection');
-                    setShowRecHint(!showRecHint);
-                  }}
-                  className={`p-1 rounded-lg transition-colors cursor-pointer flex items-center justify-center ${
-                    showRecHint ? 'bg-indigo-500/30 text-indigo-200' : 'bg-white/5 text-[var(--text-muted)] hover:text-white hover:bg-white/10'
-                  }`}
-                  title="View AI Curation Details"
-                >
-                  <HelpCircle className="w-3.5 h-3.5" />
-                </button>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                  {timeBasedMood.timeSlot}
+                </span>
               </div>
+              <p className="text-[11px] text-[var(--text-muted)] line-clamp-1">
+                {timeBasedMood.description}
+              </p>
             </div>
           </div>
 
-          {/* Collapsible AI Details Hint Box */}
-          {showRecHint && (
-            <div className="p-3 rounded-2xl bg-indigo-950/40 border border-indigo-500/30 text-xs space-y-2 animate-fadeIn">
-              <p className="text-[var(--text-primary)]">{recReason}</p>
-              {userFavoriteGenres.length > 0 && (
-                <div className="flex items-center gap-1.5 flex-wrap pt-1">
-                  <span className="text-[10px] font-bold uppercase text-[var(--text-muted)]">Your Top Favorite Genres:</span>
-                  {userFavoriteGenres.map((genre) => (
-                    <button
-                      key={genre}
-                      onClick={() => setActiveTag(genre)}
-                      className="px-2 py-0.5 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/30 text-[10px] font-bold transition-colors cursor-pointer"
-                    >
-                      {genre}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            {recommendedStations.map((station) => (
-              <StationCard
-                key={`rec_${station.id}`}
-                station={{ ...station, isFavorite: favoriteIds.has(station.id) }}
-                isPlaying={isPlaying}
-                isCurrent={currentStationId === station.id}
-                isQueued={queuedIds.has(station.id)}
-                onPlay={handlePlayStation}
-                onToggleFavorite={handleToggleFavorite}
-                onToggleQueue={handleToggleQueue}
-                onSetAlarm={onSetAlarm}
-                onShare={onShareStation}
-                onBlockStation={onBlockStation}
-              />
-            ))}
-          </div>
+          <button
+            onClick={() => {
+              triggerHaptic('medium');
+              setIsMoodIntelligenceActive(!isMoodIntelligenceActive);
+            }}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border ${
+              isMoodIntelligenceActive
+                ? 'bg-gradient-to-r from-purple-500 to-indigo-500 text-white border-purple-400 shadow-md shadow-purple-500/30 scale-102'
+                : 'bg-white/10 hover:bg-white/20 text-purple-200 border-purple-500/30'
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5 text-purple-300 animate-pulse" />
+            <span>{isMoodIntelligenceActive ? 'Mood Intelligence Active' : `Filter by ${timeBasedMood.tag}`}</span>
+          </button>
         </div>
-      )}
+      </div>
 
-      {/* 2. 'Queued for Later' Station List (Offline Stored + Firestore Synced) */}
-      {!searchQuery && queuedStations.length > 0 && (
-        <div className="p-4 sm:p-5 rounded-3xl bg-[var(--surface-main)]/70 backdrop-blur-xl border border-amber-500/20 shadow-xl shadow-black/20 space-y-3.5">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <div className="flex items-center gap-2.5">
-              <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30">
-                <Bookmark className="w-4 h-4" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-bold uppercase tracking-wider text-[var(--text-primary)]">
-                    {t('queued_for_later', 'Queued for Later')} ({queuedStations.length})
-                  </h3>
-                  {currentUser ? (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold">
-                      <Cloud className="w-3 h-3" />
-                      Auto Cloud Sync
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[10px] font-bold">
-                      <WifiOff className="w-3 h-3" />
-                      Offline Cached
-                    </span>
-                  )}
-                </div>
-                <p className="text-xs text-[var(--text-muted)]">Saved offline, auto-syncs when online</p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                onClick={handleClearQueue}
-                className="text-[11px] text-[var(--text-muted)] hover:text-rose-400 flex items-center gap-1 px-2.5 py-1.5 rounded-xl hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20 transition-all cursor-pointer"
-                title="Clear All Queued Stations"
-              >
-                <Trash2 className="w-3 h-3" />
-                <span>Clear Queue</span>
-              </button>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            {queuedStations.map((item) => (
-              <StationCard
-                key={`queue_${item.id}`}
-                station={{ ...item, isFavorite: favoriteIds.has(item.id) }}
-                isPlaying={isPlaying}
-                isCurrent={currentStationId === item.id}
-                isQueued={true}
-                onPlay={handlePlayStation}
-                onToggleFavorite={handleToggleFavorite}
-                onToggleQueue={handleToggleQueue}
-                onSetAlarm={onSetAlarm}
-                onShare={onShareStation}
-                onBlockStation={onBlockStation}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* 2.2 'Recently Added Stations' Section (Last 5 custom or imported stations) */}
-      {!searchQuery && recentlyAddedStations.length > 0 && (activeTag === 'All' || activeTag === 'All Genres') && !selectedCountryName && (
-        <div className="p-4 sm:p-5 rounded-3xl bg-[var(--surface-main)]/70 backdrop-blur-xl border border-emerald-500/20 shadow-xl shadow-black/20 space-y-3.5 animate-fadeIn">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <div className="flex items-center gap-2.5">
-              <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                <Plus className="w-4 h-4" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-bold uppercase tracking-wider text-[var(--text-primary)]">
-                    {t('recently_added_stations', 'Recently Added Stations')} ({recentlyAddedStations.length})
-                  </h3>
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold">
-                    Custom / Imported
-                  </span>
-                </div>
-                <p className="text-xs text-[var(--text-muted)]">Your latest manually added live audio streams</p>
-              </div>
-            </div>
-
+      {/* Horizontal Scrollable Custom Mood Tag Chips Filter Bar */}
+      <div className="flex items-center gap-2 overflow-x-auto py-2 no-scrollbar scroll-smooth">
+        <span className="text-[11px] font-bold text-purple-300 uppercase tracking-wider shrink-0 flex items-center gap-1.5 px-2 py-1 rounded-xl bg-purple-500/10 border border-purple-500/20">
+          <Tag className="w-3.5 h-3.5 text-purple-400" />
+          <span>Mood Filter:</span>
+        </span>
+        {moodTags.map((mood) => {
+          const isSelected = activeMoodTag === mood;
+          return (
             <button
+              key={mood}
               onClick={() => {
                 triggerHaptic('selection');
-                if (onOpenAddStation) onOpenAddStation();
-                else setIsAddCustomModalOpen(true);
+                setActiveMoodTag(mood);
+                if (mood !== 'All Moods') {
+                  const mappedEq = storageService.getMoodEqPreset(mood);
+                  if (mappedEq) {
+                    audioEngine.applyEQPreset(mappedEq);
+                  }
+                }
               }}
-              className="text-[11px] text-emerald-300 hover:text-emerald-200 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 transition-all cursor-pointer font-bold"
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all cursor-pointer border shrink-0 flex items-center gap-1.5 ${
+                isSelected
+                  ? 'bg-purple-500 text-black border-purple-400 shadow-lg shadow-purple-500/25 scale-105'
+                  : 'bg-white/5 border-white/10 text-[var(--text-muted)] hover:text-white hover:bg-white/10'
+              }`}
             >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Add Station</span>
+              <span>{mood === 'All Moods' ? '🌐 All Moods' : `✨ ${mood}`}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* 1. Queued for Later Station List */}
+      {!searchQuery && queuedStations.length > 0 && (
+        <motion.div
+          layout
+          className="p-4 sm:p-5 rounded-3xl bg-[var(--surface-main)]/70 backdrop-blur-xl border border-amber-500/20 shadow-xl shadow-black/20"
+        >
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <button
+              onClick={() => handleToggleSection('queue')}
+              className="flex items-center gap-2.5 text-left cursor-pointer group focus:outline-none"
+            >
+              <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 group-hover:scale-105 transition-transform duration-200">
+                <Bookmark className="w-4 h-4" />
+              </div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-bold uppercase tracking-wider text-[var(--text-primary)]">
+                  {t('queued_for_later', 'Queued for Later')} ({queuedStations.length})
+                </h3>
+                <ChevronDown
+                  className={`w-4 h-4 text-amber-400/75 transform transition-transform duration-300 ${
+                    isQueueExpanded ? 'rotate-180' : 'rotate-0'
+                  }`}
+                />
+              </div>
+            </button>
+
+            <button
+              onClick={handleClearQueue}
+              className="text-[11px] text-[var(--text-muted)] hover:text-rose-400 flex items-center gap-1 px-2.5 py-1.5 rounded-xl hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20 transition-all cursor-pointer font-semibold focus:outline-none"
+            >
+              <Trash2 className="w-3 h-3" />
+              <span>Clear Queue</span>
             </button>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
-            {recentlyAddedStations.map((station) => (
-              <StationCard
-                key={`recent_added_${station.id}`}
-                station={{ ...station, isFavorite: favoriteIds.has(station.id) }}
-                isPlaying={isPlaying}
-                isCurrent={currentStationId === station.id}
-                isQueued={queuedIds.has(station.id)}
-                onPlay={handlePlayStation}
-                onToggleFavorite={handleToggleFavorite}
-                onToggleQueue={handleToggleQueue}
-                onSetAlarm={onSetAlarm}
-                onShare={onShareStation}
-                onBlockStation={onBlockStation}
-              />
-            ))}
-          </div>
-        </div>
+          <AnimatePresence initial={false}>
+            {isQueueExpanded && (
+              <motion.div
+                key="queue-section-content"
+                initial={{ height: 0, opacity: 0 }}
+                animate={{
+                  height: 'auto',
+                  opacity: 1,
+                  transition: {
+                    height: { duration: 0.35, ease: [0.25, 1, 0.5, 1] },
+                    opacity: { duration: 0.25, delay: 0.05 },
+                  },
+                }}
+                exit={{
+                  height: 0,
+                  opacity: 0,
+                  transition: {
+                    height: { duration: 0.3, ease: [0.25, 1, 0.5, 1] },
+                    opacity: { duration: 0.15 },
+                  },
+                }}
+                style={{ overflow: 'hidden' }}
+                className="mt-3.5"
+              >
+                <div className={layoutPreference === 'compact' ? 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5 pt-1' : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1'}>
+                  {queuedStations.map((item) => (
+                    <StationCard
+                      key={`queue_${item.id}`}
+                      station={{ ...item, isFavorite: favoriteIds.has(item.id) }}
+                      isPlaying={isPlaying}
+                      isCurrent={currentStationId === item.id}
+                      isQueued={true}
+                      onPlay={handlePlayStation}
+                      onToggleFavorite={handleToggleFavorite}
+                      onToggleQueue={handleToggleQueue}
+                      onSetAlarm={onSetAlarm}
+                      onShare={onShareStation}
+                      onBlockStation={onBlockStation}
+                      isCompact={layoutPreference === 'compact'}
+                    />
+                  ))}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </motion.div>
       )}
 
-      {/* 2.5 API-Driven 'Trending Now' (Highest Global Listenership Growth - hidden when searching or filtering) */}
-      {!searchQuery && trendingNowStations.length > 0 && (activeTag === 'All' || activeTag === 'All Genres') && !selectedCountryName && (
-        <div className="p-4 sm:p-5 rounded-3xl bg-[var(--surface-main)]/80 backdrop-blur-xl border border-amber-500/30 shadow-2xl shadow-amber-500/10 space-y-3.5">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-2xl bg-gradient-to-tr from-amber-500/25 to-rose-500/25 text-amber-400 border border-amber-500/30 shadow-inner">
-                <Flame className="w-5 h-5 animate-pulse" />
+      {/* 4. Recently Played Section (Tracks last 20 stations visited during session) */}
+      {recents.length > 0 && !searchQuery && (
+        <motion.div layout className="space-y-0 pt-2">
+          <div className="flex items-center justify-between flex-wrap gap-2 mb-1">
+            <button
+              onClick={() => handleToggleSection('recent')}
+              className="flex items-center gap-2 text-left cursor-pointer group focus:outline-none"
+            >
+              <div className="p-1.5 rounded-xl bg-sky-500/20 text-sky-400 border border-sky-500/30 group-hover:scale-105 transition-transform duration-200">
+                <History className="w-4 h-4" />
               </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="text-base font-bold tracking-tight text-[var(--text-primary)]">
-                  {t('trending', 'Trending')}
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm sm:text-base font-bold text-[var(--text-primary)] flex items-center gap-1.5">
+                  <span>Recently Played</span>
+                  <ChevronDown
+                    className={`w-4 h-4 text-sky-400/75 transform transition-transform duration-300 ${
+                      isRecentExpanded ? 'rotate-180' : 'rotate-0'
+                    }`}
+                  />
                 </h3>
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-gradient-to-r from-amber-500/20 to-rose-500/20 text-amber-300 border border-amber-500/30 text-[10px] font-extrabold uppercase tracking-wider">
-                  <TrendingUp className="w-3 h-3" />
-                  Surge
+                <span className="px-2 py-0.5 rounded-full bg-sky-500/15 text-sky-400 border border-sky-500/30 text-xs font-mono font-bold">
+                  {Math.min(recents.length, 20)}
                 </span>
-                <button
-                  onClick={() => {
-                    triggerHaptic('selection');
-                    setShowTrendingHint(!showTrendingHint);
-                  }}
-                  className={`p-1 rounded-lg transition-colors cursor-pointer flex items-center justify-center ${
-                    showTrendingHint ? 'bg-amber-500/30 text-amber-200' : 'bg-white/5 text-[var(--text-muted)] hover:text-white hover:bg-white/10'
-                  }`}
-                  title="View Surge Details"
-                >
-                  <HelpCircle className="w-3.5 h-3.5" />
-                </button>
               </div>
-            </div>
-          </div>
-
-          {/* Collapsible Trending Hint Box */}
-          {showTrendingHint && (
-            <div className="p-3 rounded-2xl bg-amber-950/40 border border-amber-500/30 text-xs text-[var(--text-primary)] animate-fadeIn">
-              Stations currently experiencing the fastest listenership surge worldwide
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            {trendingNowStations.slice(0, 8).map((station) => (
-              <StationCard
-                key={`trend_now_${station.id}`}
-                station={{ ...station, isFavorite: favoriteIds.has(station.id) }}
-                isPlaying={isPlaying}
-                isCurrent={currentStationId === station.id}
-                isQueued={queuedIds.has(station.id)}
-                onPlay={handlePlayStation}
-                onToggleFavorite={handleToggleFavorite}
-                onToggleQueue={handleToggleQueue}
-                onSetAlarm={onSetAlarm}
-                onShare={onShareStation}
-                onBlockStation={onBlockStation}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* 3. Cloud Curated Trending Stations (Firebase Remote Config) */}
-      {trendingStations.length > 0 && !searchQuery && activeTag === 'All Genres' && !selectedCountryName && (
-        <div className="space-y-3 pt-1">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="p-1 rounded-lg bg-gradient-to-r from-amber-500/20 to-rose-500/20 text-amber-400 border border-amber-500/30">
-                <Zap className="w-3.5 h-3.5" />
-              </div>
-              <h3 className="text-sm font-bold uppercase tracking-wider text-[var(--text-primary)]">
-                Trending Worldwide (Firebase Remote Config)
-              </h3>
-            </div>
-            <span className="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[10px] font-bold">
-              Dynamic Cloud Curation
-            </span>
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-            {trendingStations.map((station) => (
-              <StationCard
-                key={`trending_${station.id}`}
-                station={{ ...station, isFavorite: favoriteIds.has(station.id) }}
-                isPlaying={isPlaying}
-                isCurrent={currentStationId === station.id}
-                isQueued={queuedIds.has(station.id)}
-                onPlay={handlePlayStation}
-                onToggleFavorite={handleToggleFavorite}
-                onToggleQueue={handleToggleQueue}
-                onSetAlarm={onSetAlarm}
-                onShare={onShareStation}
-                onBlockStation={onBlockStation}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Top Shared Stations Widget (Firebase Analytics Monitored) */}
-      {topSharedStations.length > 0 && !searchQuery && activeTag === 'All Genres' && !selectedCountryName && (
-        <div className="space-y-3 pt-2">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="p-1 rounded-lg bg-gradient-to-r from-rose-500/20 to-orange-500/20 text-rose-400 border border-rose-500/30">
-                <Share2 className="w-3.5 h-3.5" />
-              </div>
-              <h3 className="text-sm font-bold uppercase tracking-wider text-[var(--text-primary)]">
-                Top Shared Stations
-              </h3>
-            </div>
-            <span className="px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-300 border border-rose-500/30 text-[10px] font-bold">
-              Firebase Analytics
-            </span>
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-            {topSharedStations.map((station) => (
-              <StationCard
-                key={`topshared_${station.id}`}
-                station={{ ...station, isFavorite: favoriteIds.has(station.id) }}
-                isPlaying={isPlaying}
-                isCurrent={currentStationId === station.id}
-                isQueued={queuedIds.has(station.id)}
-                onPlay={handlePlayStation}
-                onToggleFavorite={handleToggleFavorite}
-                onToggleQueue={handleToggleQueue}
-                onSetAlarm={onSetAlarm}
-                onShare={onShareStation}
-                onBlockStation={onBlockStation}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* 4. Recently Played Section (Last 10 Stations with Firestore Cloud Sync) */}
-      {recents.length > 0 && !searchQuery && activeTag === 'All Genres' && !selectedCountryName && (
-        <div className="space-y-3 pt-2">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <div className="flex items-center gap-2">
-              <div className="p-1 rounded-lg bg-sky-500/20 text-sky-400 border border-sky-500/30">
-                <History className="w-3.5 h-3.5" />
-              </div>
-              <h3 className="text-sm font-bold uppercase tracking-wider text-[var(--text-primary)]">
-                Recent Stations ({recents.length})
-              </h3>
               {currentUser ? (
                 <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold">
                   <Cloud className="w-3 h-3" />
-                  Firestore Synced
+                  Synced
                 </span>
               ) : (
                 <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/10 text-[var(--text-muted)] border border-white/10 text-[10px]">
-                  Local Cache
+                  Local
                 </span>
               )}
-            </div>
+            </button>
 
             <div className="flex items-center gap-2">
               <button
@@ -1262,34 +1260,62 @@ export const RadioView: React.FC<RadioViewProps> = ({
                   await firebaseService.clearCloudRecentStations();
                   setRecents([]);
                 }}
-                className="text-[11px] text-[var(--text-muted)] hover:text-rose-400 flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20 transition-all cursor-pointer"
-                title="Clear Recent Stations History"
+                className="text-xs text-[var(--text-muted)] hover:text-rose-400 flex items-center gap-1.5 px-2.5 py-1 rounded-xl hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20 transition-all cursor-pointer font-medium focus:outline-none"
+                title="Clear Recently Played History"
               >
-                <Trash2 className="w-3 h-3" />
-                <span>Clear History</span>
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Clear</span>
               </button>
             </div>
           </div>
 
-          <div className="flex overflow-x-auto gap-3 pb-2 no-scrollbar snap-x sm:grid sm:grid-cols-3 lg:grid-cols-5">
-            {recents.slice(0, 10).map((station) => (
-              <div key={`recent_${station.id}`} className="snap-start shrink-0 w-[210px] sm:w-auto">
-                <StationCard
-                  station={{ ...station, isFavorite: favoriteIds.has(station.id) }}
-                  isPlaying={isPlaying}
-                  isCurrent={currentStationId === station.id}
-                  isQueued={queuedIds.has(station.id)}
-                  onPlay={handlePlayStation}
-                  onToggleFavorite={handleToggleFavorite}
-                  onToggleQueue={handleToggleQueue}
-                  onSetAlarm={onSetAlarm}
-                  onShare={onShareStation}
-                  onBlockStation={onBlockStation}
-                />
-              </div>
-            ))}
-          </div>
-        </div>
+          <AnimatePresence initial={false}>
+            {isRecentExpanded && (
+              <motion.div
+                key="recent-section-content"
+                initial={{ height: 0, opacity: 0 }}
+                animate={{
+                  height: 'auto',
+                  opacity: 1,
+                  transition: {
+                    height: { duration: 0.35, ease: [0.25, 1, 0.5, 1] },
+                    opacity: { duration: 0.25, delay: 0.05 },
+                  },
+                }}
+                exit={{
+                  height: 0,
+                  opacity: 0,
+                  transition: {
+                    height: { duration: 0.3, ease: [0.25, 1, 0.5, 1] },
+                    opacity: { duration: 0.15 },
+                  },
+                }}
+                style={{ overflow: 'hidden' }}
+                className="mt-2.5"
+              >
+                <div className="flex overflow-x-auto gap-3 pb-3 pt-1 no-scrollbar snap-x scroll-smooth">
+                  {recents.slice(0, 20).map((station) => (
+                    <div key={`recent_${station.id}`} className={layoutPreference === 'compact' ? 'snap-start shrink-0 w-[200px] sm:w-[220px]' : 'snap-start shrink-0 w-[240px] sm:w-[270px]'}>
+                      <StationCard
+                        station={{ ...station, isFavorite: favoriteIds.has(station.id) }}
+                        isPlaying={isPlaying}
+                        isCurrent={currentStationId === station.id}
+                        isQueued={queuedIds.has(station.id)}
+                        onPlay={handlePlayStation}
+                        onToggleFavorite={handleToggleFavorite}
+                        onToggleQueue={handleToggleQueue}
+                        onSetAlarm={onSetAlarm}
+                        onShare={onShareStation}
+                        onBlockStation={onBlockStation}
+                        isCompact={layoutPreference === 'compact'}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </motion.div>
       )}
 
       {/* 5. Live Broadcast Stations Grid */}
@@ -1394,6 +1420,42 @@ export const RadioView: React.FC<RadioViewProps> = ({
               </button>
             </div>
 
+            {/* Display Layout Preference Toggler */}
+            <div className="flex items-center gap-1 bg-[var(--surface-main)]/90 backdrop-blur-md p-1 rounded-xl border border-[var(--border-color)] text-xs shadow-inner shrink-0">
+              <button
+                onClick={() => {
+                  triggerHaptic('selection');
+                  setLayoutPreference('compact');
+                  storageService.saveLayoutPreference('compact');
+                }}
+                className={`p-1.5 rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
+                  layoutPreference === 'compact'
+                    ? 'bg-white/20 text-white font-bold'
+                    : 'text-[var(--text-muted)] hover:text-white'
+                }`}
+                title="Compact List View"
+              >
+                <List className="w-4 h-4" />
+                <span className="hidden md:inline">Compact</span>
+              </button>
+              <button
+                onClick={() => {
+                  triggerHaptic('selection');
+                  setLayoutPreference('large');
+                  storageService.saveLayoutPreference('large');
+                }}
+                className={`p-1.5 rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
+                  layoutPreference === 'large'
+                    ? 'bg-white/20 text-white font-bold'
+                    : 'text-[var(--text-muted)] hover:text-white'
+                }`}
+                title="Large Card View"
+              >
+                <LayoutGrid className="w-4 h-4" />
+                <span className="hidden md:inline">Grid</span>
+              </button>
+            </div>
+
             {/* Add Custom Station Action Button */}
             <button
               onClick={() => {
@@ -1415,45 +1477,83 @@ export const RadioView: React.FC<RadioViewProps> = ({
 
         {/* Custom Stations Quick Shelf (if user added custom streams) */}
         {customStations.length > 0 && !searchQuery && activeTag === 'All Genres' && !selectedCountryName && (
-          <div className="p-3.5 sm:p-4 rounded-2xl bg-[var(--surface-main)]/70 backdrop-blur-xl border border-[var(--accent-primary)]/30 space-y-2.5">
+          <motion.div layout className="p-3.5 sm:p-4 rounded-2xl bg-[var(--surface-main)]/70 backdrop-blur-xl border border-[var(--accent-primary)]/30">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="p-1.5 rounded-lg bg-[var(--accent-primary)]/20 text-[var(--accent-primary)]">
+              <button
+                onClick={() => handleToggleSection('custom')}
+                className="flex items-center gap-2 text-left cursor-pointer group focus:outline-none"
+              >
+                <div className="p-1.5 rounded-lg bg-[var(--accent-primary)]/20 text-[var(--accent-primary)] group-hover:scale-105 transition-transform duration-200">
                   <PlusCircle className="w-3.5 h-3.5" />
                 </div>
-                <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--text-primary)]">
-                  Your Custom Added Stations ({customStations.length})
-                </h4>
-              </div>
+                <div className="flex items-center gap-1.5">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--text-primary)]">
+                    Your Custom Added Stations ({customStations.length})
+                  </h4>
+                  <ChevronDown
+                    className={`w-3.5 h-3.5 text-[var(--accent-primary)] transform transition-transform duration-300 ${
+                      isCustomShelfExpanded ? 'rotate-180' : 'rotate-0'
+                    }`}
+                  />
+                </div>
+              </button>
               <button
                 onClick={() => {
                   triggerHaptic('light');
                   setActiveTag('Custom Streams');
                 }}
-                className="text-[11px] text-[var(--accent-primary)] hover:underline font-semibold"
+                className="text-[11px] text-[var(--accent-primary)] hover:underline font-semibold focus:outline-none"
               >
                 View All Custom
               </button>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
-              {customStations.slice(0, 4).map((station) => (
-                <StationCard
-                  key={`custom_shelf_${station.id}`}
-                  station={{ ...station, isFavorite: favoriteIds.has(station.id) }}
-                  isPlaying={isPlaying}
-                  isCurrent={currentStationId === station.id}
-                  isQueued={queuedIds.has(station.id)}
-                  onPlay={handlePlayStation}
-                  onToggleFavorite={handleToggleFavorite}
-                  onToggleQueue={handleToggleQueue}
-                  onSetAlarm={onSetAlarm}
-                  onShare={onShareStation}
-                  onBlockStation={onBlockStation}
-                />
-              ))}
-            </div>
-          </div>
+            <AnimatePresence initial={false}>
+              {isCustomShelfExpanded && (
+                <motion.div
+                  key="custom-shelf-content"
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{
+                    height: 'auto',
+                    opacity: 1,
+                    transition: {
+                      height: { duration: 0.35, ease: [0.25, 1, 0.5, 1] },
+                      opacity: { duration: 0.25, delay: 0.05 },
+                    },
+                  }}
+                  exit={{
+                    height: 0,
+                    opacity: 0,
+                    transition: {
+                      height: { duration: 0.3, ease: [0.25, 1, 0.5, 1] },
+                      opacity: { duration: 0.15 },
+                    },
+                  }}
+                  style={{ overflow: 'hidden' }}
+                  className="mt-2.5"
+                >
+                  <div className={layoutPreference === 'compact' ? 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5 pt-1' : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 pt-1'}>
+                    {customStations.slice(0, 4).map((station) => (
+                      <StationCard
+                        key={`custom_shelf_${station.id}`}
+                        station={{ ...station, isFavorite: favoriteIds.has(station.id) }}
+                        isPlaying={isPlaying}
+                        isCurrent={currentStationId === station.id}
+                        isQueued={queuedIds.has(station.id)}
+                        onPlay={handlePlayStation}
+                        onToggleFavorite={handleToggleFavorite}
+                        onToggleQueue={handleToggleQueue}
+                        onSetAlarm={onSetAlarm}
+                        onShare={onShareStation}
+                        onBlockStation={onBlockStation}
+                        isCompact={layoutPreference === 'compact'}
+                      />
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </motion.div>
         )}
 
         {loading ? (
@@ -1481,36 +1581,60 @@ export const RadioView: React.FC<RadioViewProps> = ({
           </div>
         ) : (
           <div className="space-y-4">
-            <div className="columns-1 sm:columns-2 lg:columns-3 xl:columns-4 gap-3.5 [column-fill:_balance] w-full">
+            <div className={layoutPreference === 'compact' ? 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5 w-full' : 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3.5 w-full'}>
               {sortedStations.map((station) => (
-                <div key={station.id} className="break-inside-avoid mb-3.5 inline-block w-full">
-                  <StationCard
-                    station={{ ...station, isFavorite: favoriteIds.has(station.id) }}
-                    isPlaying={isPlaying}
-                    isCurrent={currentStationId === station.id}
-                    isQueued={queuedIds.has(station.id)}
-                    onPlay={handlePlayStation}
-                    onToggleFavorite={handleToggleFavorite}
-                    onToggleQueue={handleToggleQueue}
-                    onSetAlarm={onSetAlarm}
-                    onShare={onShareStation}
-                    onBlockStation={onBlockStation}
-                  />
-                </div>
+                <StationCard
+                  key={station.id}
+                  station={{ ...station, isFavorite: favoriteIds.has(station.id) }}
+                  isPlaying={isPlaying}
+                  isCurrent={currentStationId === station.id}
+                  isQueued={queuedIds.has(station.id)}
+                  onPlay={handlePlayStation}
+                  onToggleFavorite={handleToggleFavorite}
+                  onToggleQueue={handleToggleQueue}
+                  onSetAlarm={onSetAlarm}
+                  onShare={onShareStation}
+                  onBlockStation={onBlockStation}
+                  isCompact={layoutPreference === 'compact'}
+                />
               ))}
             </div>
 
-            {/* Infinite Expansion / Load More Button */}
-            {activeTag !== 'Custom Streams' && sortedStations.length >= 40 && (
+            {/* Infinite Scroll Sentinel */}
+            {hasMore && activeTag !== 'Custom Streams' && (
+              <div ref={sentinelRef} className="h-8 -mt-4 pointer-events-none" aria-hidden="true" />
+            )}
+
+            {/* Auto Loading More Spinner & Indicator */}
+            {isLoadingMore && (
+              <div className="py-6 text-center flex flex-col items-center justify-center gap-2">
+                <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-[var(--surface-main)] border border-[var(--border-color)] text-xs text-[var(--text-primary)] shadow-md">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-[var(--accent-primary)]" />
+                  <span>{t('buffering', 'Loading more stations...')}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Infinite Expansion / Load More Button fallback */}
+            {!isLoadingMore && hasMore && activeTag !== 'Custom Streams' && sortedStations.length >= 40 && (
               <div className="pt-3 text-center">
                 <button
                   onClick={handleLoadMore}
                   disabled={isLoadingMore}
                   className="px-6 py-3 rounded-2xl bg-[var(--surface-main)] hover:bg-white/10 border border-[var(--border-color)] hover:border-[var(--accent-primary)] text-xs sm:text-sm font-bold text-[var(--text-primary)] shadow-lg hover:shadow-[var(--accent-primary)]/20 transition-all cursor-pointer inline-flex items-center gap-2"
                 >
-                  <RefreshCw className={`w-4 h-4 text-[var(--accent-primary)] ${isLoadingMore ? 'animate-spin' : ''}`} />
-                  <span>{isLoadingMore ? t('buffering', 'Loading...') : `${t('load_more', 'Load More Stations')} (${sortedStations.length})`}</span>
+                  <RefreshCw className="w-4 h-4 text-[var(--accent-primary)]" />
+                  <span>{`${t('load_more', 'Load More Stations')} (${sortedStations.length} loaded)`}</span>
                 </button>
+              </div>
+            )}
+
+            {/* End of list notification */}
+            {!hasMore && activeTag !== 'Custom Streams' && sortedStations.length >= 24 && (
+              <div className="pt-4 pb-2 text-center">
+                <p className="text-[11px] text-[var(--text-muted)] font-medium">
+                  All available broadcast stations loaded ({sortedStations.length} stations)
+                </p>
               </div>
             )}
           </div>

@@ -419,21 +419,21 @@ export const apiService = {
   },
 
   // 3. Search Podcasts
-  async searchPodcasts(term: string = 'technology', country: string = 'US'): Promise<PodcastShow[]> {
-    const cacheKey = `podcasts_${term}_${country}`;
+  async searchPodcasts(term: string = 'technology', country: string = 'US', limit: number = 30): Promise<PodcastShow[]> {
+    const cacheKey = `podcasts_${term}_${country}_${limit}`;
     const cached = getCachedItem<PodcastShow[]>(cacheKey, 30 * 60 * 1000);
     if (cached) {
-      apiService.fetchAndCachePodcasts(term, country, cacheKey).catch(() => {});
+      apiService.fetchAndCachePodcasts(term, country, limit, cacheKey).catch(() => {});
       return cached;
     }
 
-    return apiService.fetchAndCachePodcasts(term, country, cacheKey);
+    return apiService.fetchAndCachePodcasts(term, country, limit, cacheKey);
   },
 
-  async fetchAndCachePodcasts(term: string, country: string, cacheKey: string): Promise<PodcastShow[]> {
+  async fetchAndCachePodcasts(term: string, country: string, limit: number, cacheKey: string): Promise<PodcastShow[]> {
     // Tier 1: Local server endpoint
     try {
-      const res = await fetch(`/api/podcast/search?term=${encodeURIComponent(term)}&country=${country}&limit=30`);
+      const res = await fetch(`/api/podcast/search?term=${encodeURIComponent(term)}&country=${country}&limit=${limit}`);
       if (res.ok) {
         const data = await res.json();
         if (data && Array.isArray(data.podcasts) && data.podcasts.length > 0) {
@@ -445,20 +445,27 @@ export const apiService = {
 
     // Tier 2: Direct query to Apple iTunes Search API (no API key needed!)
     try {
-      const url = `https://itunes.apple.com/search?media=podcast&term=${encodeURIComponent(term)}&country=${country}&limit=30`;
+      const url = `https://itunes.apple.com/search?media=podcast&term=${encodeURIComponent(term)}&country=${country}&limit=${limit}`;
       const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
         if (data && Array.isArray(data.results)) {
           const podcasts: PodcastShow[] = data.results.map((item: any) => ({
-            id: String(item.collectionId || Math.random()),
-            title: item.collectionName || item.trackName || 'Podcast',
-            artist: item.artistName || 'Unknown Host',
-            coverUrl: item.artworkUrl600 || item.artworkUrl100 || '',
+            id: `itunes_podcast_${item.collectionId || Math.random()}`,
+            name: item.collectionName || item.trackName || 'Podcast Show',
+            genre: item.primaryGenreName || 'Podcast',
+            country: item.country || 'Global',
+            countryCode: item.country || '',
+            streamUrl: item.feedUrl || '',
+            imageUrl: item.artworkUrl600 || item.artworkUrl100 || 'https://images.unsplash.com/photo-1590602847861-f357a9332bbc?w=300&auto=format&fit=crop&q=80',
+            bitrate: 'Podcast',
+            codec: 'AAC/MP3',
+            isFavorite: false,
+            isCustom: false,
+            artistName: item.artistName || 'Unknown Host',
+            trackCount: item.trackCount || 10,
             feedUrl: item.feedUrl || '',
-            genre: item.primaryGenreName || 'General',
-            description: item.collectionName || 'Popular Podcast Show',
-            episodeCount: item.trackCount || 10
+            releaseDate: item.releaseDate || ''
           }));
           setCachedItem(cacheKey, podcasts);
           return podcasts;

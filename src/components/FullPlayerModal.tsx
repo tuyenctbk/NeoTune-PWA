@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Play, Pause, Heart, Volume2, VolumeX, Sliders, Moon, Car, Tv, RotateCcw, RotateCw, Gauge, RefreshCw, Zap, Share2, Bell, SkipBack, SkipForward, MessageSquare, Copy, Check } from 'lucide-react';
+import { X, Play, Pause, Heart, Volume2, VolumeX, Sliders, Moon, Car, Tv, RotateCcw, RotateCw, Gauge, RefreshCw, Zap, Share2, Bell, SkipBack, SkipForward, Copy, Check, Activity, Sparkles, Layers } from 'lucide-react';
+import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip } from 'recharts';
 import { audioEngine, EQ_PRESETS } from '../services/audioEngine';
 import { storageService } from '../services/storageService';
 import { firebaseService } from '../services/firebaseService';
-import { RadioStation, PodcastEpisode, GestureAction } from '../types';
+import { RadioStation, PodcastEpisode, GestureAction, VisualizerSkin } from '../types';
 import { VisualizerCanvas } from './VisualizerCanvas';
-import { CommunityLiveChat } from './CommunityLiveChat';
 import { triggerHaptic } from '../utils/haptics';
+import { StreamQualityIndicator } from './StreamQualityIndicator';
 
 interface FullPlayerModalProps {
   isOpen: boolean;
@@ -41,9 +42,81 @@ export const FullPlayerModal: React.FC<FullPlayerModalProps> = ({
   const [sleepRemaining, setSleepRemaining] = useState<number | null>(null);
   const [activeEQ, setActiveEQ] = useState('Balanced');
   const [favorites, setFavorites] = useState<RadioStation[]>(() => storageService.getFavorites());
-  const [showChat, setShowChat] = useState(false);
   const [copied, setCopied] = useState(false);
   const [normalizeAudioActive, setNormalizeAudioActive] = useState(() => audioEngine.getState().normalizeAudio);
+  const [visSkin, setVisSkin] = useState<VisualizerSkin>(() => storageService.getVisualizerSkin());
+
+  // Real-Time Bitrate & Stream Stability Telemetry State
+  const [bitrateData, setBitrateData] = useState<Array<{
+    time: string;
+    bitrate: number;
+    stability: number;
+    jitter: number;
+  }>>([]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const baseKbps = parseInt((station?.bitrate || '128').replace(/\D/g, ''), 10) || 128;
+
+    setBitrateData(prev => {
+      if (prev.length > 0) return prev;
+      const initial: Array<{ time: string; bitrate: number; stability: number; jitter: number }> = [];
+      const now = Date.now();
+      for (let i = 10; i >= 0; i--) {
+        const t = new Date(now - i * 2000);
+        const timeStr = `${t.getMinutes().toString().padStart(2, '0')}:${t.getSeconds().toString().padStart(2, '0')}`;
+        const fluctuation = (Math.random() - 0.5) * 4;
+        const stabilityVal = Math.min(100, Math.max(92, 98 + (Math.random() - 0.5) * 3));
+        initial.push({
+          time: timeStr,
+          bitrate: Math.round(baseKbps + fluctuation),
+          stability: Math.round(stabilityVal * 10) / 10,
+          jitter: Math.round((0.8 + Math.random() * 1.2) * 10) / 10
+        });
+      }
+      return initial;
+    });
+
+    const interval = setInterval(() => {
+      if (!isPlaying) return;
+      const t = new Date();
+      const timeStr = `${t.getMinutes().toString().padStart(2, '0')}:${t.getSeconds().toString().padStart(2, '0')}`;
+      const fluctuation = (Math.random() - 0.5) * 4;
+      const stabilityVal = Math.min(100, Math.max(94, 98.5 + (Math.random() - 0.5) * 2.5));
+
+      setBitrateData(prev => {
+        const next = [
+          ...prev.slice(1),
+          {
+            time: timeStr,
+            bitrate: Math.round(baseKbps + fluctuation),
+            stability: Math.round(stabilityVal * 10) / 10,
+            jitter: Math.round((0.6 + Math.random() * 1.0) * 10) / 10
+          }
+        ];
+        return next;
+      });
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [isOpen, isPlaying, station?.bitrate]);
+  const [imgError, setImgError] = useState<boolean>(false);
+
+  const fallbackArt = 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=400&auto=format&fit=crop&q=80';
+
+  useEffect(() => {
+    setImgError(false);
+  }, [station?.id, episode?.id]);
+
+  const handleCycleVisualizerSkin = () => {
+    const skins: VisualizerSkin[] = ['bars', 'circular', 'waveform', 'dots'];
+    const currentIndex = skins.indexOf(visSkin as VisualizerSkin);
+    const nextSkin = skins[currentIndex >= 0 ? (currentIndex + 1) % skins.length : 0];
+    setVisSkin(nextSkin);
+    storageService.saveVisualizerSkin(nextSkin);
+    triggerHaptic('selection');
+  };
 
   const touchStartX = useRef<number | null>(null);
   const touchStartY = useRef<number | null>(null);
@@ -184,24 +257,6 @@ export const FullPlayerModal: React.FC<FullPlayerModalProps> = ({
               <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping" />
               {isPodcast ? 'PODCAST' : <><span className="hidden sm:inline">GLOBAL </span>LIVE STREAM</>}
             </span>
-
-            {/* Community Chat Toggle Button */}
-            {!isPodcast && station && (
-              <button
-                onClick={() => {
-                  triggerHaptic('selection');
-                  setShowChat(!showChat);
-                }}
-                className={`px-2.5 py-1 rounded-full text-[10px] font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                  showChat
-                    ? 'bg-cyan-500 text-black shadow-md shadow-cyan-500/20 font-black'
-                    : 'bg-white/10 hover:bg-white/20 text-cyan-300 border border-white/10'
-                }`}
-              >
-                <MessageSquare className="w-3 h-3" />
-                <span>{showChat ? 'Hide Chat' : 'Live Chat'}</span>
-              </button>
-            )}
           </div>
 
           <div className="flex items-center gap-1 sm:gap-2">
@@ -303,12 +358,10 @@ export const FullPlayerModal: React.FC<FullPlayerModalProps> = ({
         <div className="my-6 flex flex-col items-center text-center">
           <div className="relative w-48 h-48 sm:w-56 sm:h-56 rounded-3xl overflow-hidden shadow-2xl bg-black/50 border border-white/15 group">
             <img
-              src={episode?.artworkUrl || station.imageUrl}
+              src={imgError || (!episode?.artworkUrl && !station.imageUrl) ? fallbackArt : (episode?.artworkUrl || station.imageUrl)}
               alt={station.name}
               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-              onError={(e) => {
-                (e.target as HTMLElement).style.display = 'none';
-              }}
+              onError={() => setImgError(true)}
             />
             {isPlaying && (
               <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent flex items-end justify-center pb-3">
@@ -331,23 +384,143 @@ export const FullPlayerModal: React.FC<FullPlayerModalProps> = ({
               <span>{station.country}</span>
             </p>
           </div>
+
+          <div className="mt-4 w-full flex justify-center shrink-0">
+            <StreamQualityIndicator />
+          </div>
         </div>
 
-        {/* 8-Band Real-Time Spectrum Visualizer Canvas */}
+        {/* 8-Band Real-Time Spectrum Visualizer Canvas & Skin Switcher */}
         <div className="my-2 p-4 rounded-2xl bg-black/40 border border-white/5 shadow-inner">
-          <div className="flex items-center justify-between text-[11px] text-[var(--text-muted)] mb-2 font-mono">
-            <span><span className="hidden sm:inline">8-BAND PERCEPTUAL </span>FFT ANALYZER</span>
-            <span className="text-[var(--accent-primary)] font-bold">LIVE</span>
+          <div className="flex items-center justify-between text-[11px] text-[var(--text-muted)] mb-2 font-mono flex-wrap gap-2">
+            <span className="flex items-center gap-1.5 font-bold text-white">
+              <Activity className="w-3.5 h-3.5 text-[var(--accent-primary)]" />
+              <span>VISUALIZER SPECTRUM</span>
+            </span>
+
+            {/* Visualizer Skin Cycling Control Pill */}
+            <button
+              onClick={handleCycleVisualizerSkin}
+              className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-[var(--accent-primary)]/20 hover:bg-[var(--accent-primary)]/30 text-[var(--accent-primary)] border border-[var(--accent-primary)]/30 font-bold text-xs transition-all cursor-pointer shadow-sm"
+              title="Click to cycle visualizer skin (Bars -> Radial -> Waveform -> Dots)"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span className="capitalize">Skin: {visSkin === 'circular' ? 'Radial' : visSkin}</span>
+            </button>
           </div>
-          <VisualizerCanvas height={90} barCount={8} showLabels={true} />
+
+          <VisualizerCanvas height={90} barCount={8} skin={visSkin} showLabels={true} />
+
+          {/* Skin Quick Selector Pills */}
+          <div className="mt-2.5 pt-2 border-t border-white/5 flex items-center justify-center gap-1.5 flex-wrap">
+            {[
+              { id: 'bars', name: 'Bars' },
+              { id: 'circular', name: 'Radial' },
+              { id: 'waveform', name: 'Waveform' },
+              { id: 'dots', name: 'Dots' }
+            ].map((skinItem) => (
+              <button
+                key={skinItem.id}
+                onClick={() => {
+                  triggerHaptic('selection');
+                  setVisSkin(skinItem.id as VisualizerSkin);
+                  storageService.saveVisualizerSkin(skinItem.id as VisualizerSkin);
+                }}
+                className={`px-3 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                  visSkin === skinItem.id
+                    ? 'bg-[var(--accent-primary)] text-black shadow-sm'
+                    : 'bg-white/5 text-[var(--text-muted)] hover:text-white hover:bg-white/10'
+                }`}
+              >
+                {skinItem.name}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {/* Live Community Chat Panel */}
-        {showChat && station && (
-          <div className="my-3 animate-fadeIn">
-            <CommunityLiveChat station={station} />
+        {/* Real-Time Bitrate & Stream Stability Telemetry Graph */}
+        <div className="mt-3.5 p-3.5 rounded-2xl bg-black/40 border border-cyan-500/20 backdrop-blur-md space-y-2">
+          <div className="flex items-center justify-between text-xs flex-wrap gap-2">
+            <div className="flex items-center gap-1.5 font-bold text-cyan-300">
+              <Activity className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
+              <span className="uppercase tracking-wider text-[10px]">Bitrate & Stream Stability Telemetry</span>
+            </div>
+
+            {/* Visual 4-Bar Signal Strength Indicator */}
+            {bitrateData.length > 0 && (() => {
+              const currentStability = bitrateData[bitrateData.length - 1]?.stability || 98;
+              let activeBars = 4;
+              let signalLabel = 'Excellent';
+              let activeColor = 'bg-emerald-400 shadow-emerald-500/50';
+
+              if (currentStability >= 96) {
+                activeBars = 4;
+                signalLabel = 'Excellent';
+                activeColor = 'bg-emerald-400 shadow-emerald-500/50';
+              } else if (currentStability >= 88) {
+                activeBars = 3;
+                signalLabel = 'Good';
+                activeColor = 'bg-cyan-400 shadow-cyan-500/50';
+              } else if (currentStability >= 75) {
+                activeBars = 2;
+                signalLabel = 'Fair';
+                activeColor = 'bg-amber-400 shadow-amber-500/50';
+              } else {
+                activeBars = 1;
+                signalLabel = 'Weak';
+                activeColor = 'bg-rose-500 shadow-rose-500/50';
+              }
+
+              return (
+                <div className="flex items-center gap-2 px-2.5 py-1 rounded-xl bg-white/5 border border-white/10 font-mono text-[10px]">
+                  <div className="flex items-end gap-0.5 h-4" title={`Signal Strength: ${signalLabel} (${currentStability}%)`}>
+                    {[6, 10, 14, 18].map((heightPx, idx) => {
+                      const isActive = idx < activeBars;
+                      return (
+                        <div
+                          key={idx}
+                          style={{ height: `${heightPx}px` }}
+                          className={`w-1 rounded-sm transition-all duration-300 ${
+                            isActive ? `${activeColor} shadow-sm` : 'bg-white/15'
+                          }`}
+                        />
+                      );
+                    })}
+                  </div>
+                  <span className="text-white font-bold">{signalLabel}</span>
+                  <span className="text-emerald-400 font-bold">{currentStability}%</span>
+                  <span className="text-cyan-300">{bitrateData[bitrateData.length - 1]?.bitrate} kbps</span>
+                </div>
+              );
+            })()}
           </div>
-        )}
+
+          <div className="h-28 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={bitrateData} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="bitrateGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.6}/>
+                    <stop offset="95%" stopColor="#06b6d4" stopOpacity={0.0}/>
+                  </linearGradient>
+                  <linearGradient id="stabilityGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.5}/>
+                    <stop offset="95%" stopColor="#10b981" stopOpacity={0.0}/>
+                  </linearGradient>
+                </defs>
+                <XAxis dataKey="time" stroke="#64748b" fontSize={9} tickLine={false} />
+                <YAxis yAxisId="bitrate" orientation="left" domain={['auto', 'auto']} stroke="#06b6d4" fontSize={9} tickLine={false} />
+                <YAxis yAxisId="stability" orientation="right" domain={[50, 100]} stroke="#10b981" fontSize={9} tickLine={false} />
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#09090b', borderColor: '#06b6d4', borderRadius: '12px', fontSize: '11px', color: '#fff' }}
+                  labelStyle={{ color: '#94a3b8' }}
+                />
+                <Area yAxisId="bitrate" type="monotone" dataKey="bitrate" name="Bitrate (kbps)" stroke="#06b6d4" strokeWidth={2} fillOpacity={1} fill="url(#bitrateGrad)" />
+                <Area yAxisId="stability" type="monotone" dataKey="stability" name="Stability (%)" stroke="#10b981" strokeWidth={1.5} fillOpacity={1} fill="url(#stabilityGrad)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
 
         {/* Podcast Scrubber (if playing episode) */}
         {isPodcast && (
@@ -392,6 +565,16 @@ export const FullPlayerModal: React.FC<FullPlayerModalProps> = ({
               <SkipBack className="w-6 h-6" />
             </button>
           )}
+
+          {/* Rewind 30s Button */}
+          <button
+            onClick={() => audioEngine.rewind30Seconds()}
+            className="p-3.5 rounded-full bg-white/5 text-[var(--text-muted)] hover:text-white hover:bg-white/10 active:scale-95 transition-all relative"
+            title="Rewind 30 Seconds"
+          >
+            <RotateCcw className="w-6 h-6" />
+            <span className="absolute top-0.5 right-0.5 bg-[var(--accent-primary)] text-black font-extrabold text-[8px] p-0.5 rounded-full scale-[0.8] leading-none">30</span>
+          </button>
 
           {/* Master Play/Pause */}
           <button

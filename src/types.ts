@@ -29,6 +29,20 @@ export interface PodcastEpisode {
   artworkUrl?: string;
 }
 
+export interface ListenLaterItem {
+  id: string;
+  type: 'radio' | 'podcast_episode';
+  title: string;
+  subtitle: string;
+  audioUrl: string;
+  imageUrl?: string;
+  addedAt: number;
+  durationMs?: number;
+  station?: RadioStation;
+  episode?: PodcastEpisode;
+  show?: PodcastShow;
+}
+
 export interface PodcastShow {
   id: string;
   name: string;
@@ -86,6 +100,13 @@ export interface AlarmConfig {
   voiceMemoDurationSec?: number;
   weatherRampEnabled?: boolean;
   weatherRampCondition?: 'clear' | 'rainy' | 'snowy' | 'cloudy' | 'any';
+  gentleWakeUpEnabled?: boolean;
+  gentleWakeUpWindowMins?: number;
+  minWakeVolume?: number;      // 0.05 - 0.50
+  maxCeilingVolume?: number;   // 0.50 - 1.00
+  backupSound?: 'chime' | 'gentle_bells' | 'radar_pulse' | 'nature_birds' | 'white_noise' | 'none';
+  useAlternativeWakeTone?: boolean;
+  alternativeWakeSound?: 'gentle_rain' | 'ocean_waves' | 'forest_night' | 'gentle_bells' | 'nature_birds' | 'white_noise';
   useSystemChime?: boolean;
 }
 
@@ -186,13 +207,36 @@ export interface VisualizerCustomColors {
   secondaryColor: string;
 }
 
-export interface StationChatMessage {
+export interface SleepHistoryEntry {
+  id: string;
+  timestamp: number;
+  duration: number; // in minutes
+  timeLabel: string; // e.g., "10:45 PM"
+  dateLabel: string; // e.g., "Today" or "Yesterday"
+}
+
+export interface SleepTimerConfig {
+  duration: number;
+  fadeOutEnabled: boolean;
+  fadeCurve: 'linear' | 'exponential' | 'logarithmic';
+  recentDurations: number[];
+  sleepHistory?: SleepHistoryEntry[];
+  totalSleepFadeOutMinutes?: number;
+  totalSleepTimerSessions?: number;
+  soundscapeType?: 'none' | 'gentle_rain' | 'ocean_waves' | 'forest_night' | 'white_noise' | 'pink_noise';
+  soundscapeVolume?: number;
+  quickPresets?: number[];
+  weeklyUsage?: { day: string; date: string; minutes: number; hours: number }[];
+  intelligentAutoFade?: boolean;
+}
+
+export interface ShareHistoryEntry {
   id: string;
   stationId: string;
-  userId: string;
-  userName: string;
-  userPhoto?: string;
-  text: string;
-  createdAt: number;
+  stationName: string;
+  stationUrl: string;
+  stationGenre?: string;
+  imageUrl?: string;
+  sharedAt: number;
 }
 

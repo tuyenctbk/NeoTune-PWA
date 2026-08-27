@@ -7,19 +7,22 @@ import {
   YAxis,
   Tooltip,
   Cell,
-  AreaChart,
-  Area,
+  PieChart,
+  Pie,
 } from 'recharts';
-import { Activity, Clock, Flame, Radio, Calendar, Sparkles, TrendingUp } from 'lucide-react';
+import { Activity, Clock, Flame, Radio, Calendar, Sparkles, TrendingUp, Disc } from 'lucide-react';
 import { DailyActivityStat } from '../types';
 import { storageService } from '../services/storageService';
 
 export const ListeningHabitsSection: React.FC = () => {
   const [stats, setStats] = useState<DailyActivityStat[]>([]);
   const [activeMetric, setActiveMetric] = useState<'minutes' | 'stationCount'>('minutes');
+  const [genreData, setGenreData] = useState<Array<{ name: string; value: number; color: string; count: number }>>([]);
+  const [weeklySummary, setWeeklySummary] = useState(() => storageService.getWeeklyHabitSummary());
 
   useEffect(() => {
     setStats(storageService.getDailyListeningStats(30));
+    setGenreData(storageService.getGenreAffinityData());
   }, []);
 
   // Compute summary totals
@@ -241,6 +244,180 @@ export const ListeningHabitsSection: React.FC = () => {
               </div>
             );
           })}
+        </div>
+      </div>
+
+      {/* Weekly Listening Habit Card with Progress Ring */}
+      <div className="pt-4 border-t border-white/10 space-y-3">
+        <div className="flex items-center gap-2">
+          <div className="p-1.5 rounded-lg bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+            <Flame className="w-4 h-4 animate-pulse" />
+          </div>
+          <div>
+            <h4 className="text-xs font-bold text-white uppercase tracking-wider">
+              Weekly Listening Habit
+            </h4>
+            <p className="text-[11px] text-[var(--text-muted)]">
+              Track your weekly active listening streak, consecutive app usage, and goal progress
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-white/5 p-4 rounded-2xl border border-white/10 items-center">
+          {/* Progress Ring Column */}
+          <div className="flex flex-col items-center justify-center space-y-2">
+            <div className="relative w-28 h-28 flex items-center justify-center">
+              <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
+                {/* Background Ring */}
+                <circle
+                  cx="50"
+                  cy="50"
+                  r="40"
+                  className="stroke-slate-700/50 fill-none"
+                  strokeWidth="8"
+                />
+                {/* Active Progress Ring */}
+                <circle
+                  cx="50"
+                  cy="50"
+                  r="40"
+                  className="stroke-indigo-500 transition-all duration-1000 ease-out fill-none"
+                  strokeWidth="8"
+                  strokeDasharray="251.2"
+                  strokeDashoffset={251.2 - (251.2 * weeklySummary.weeklyGoalMetPercentage) / 100}
+                  strokeLinecap="round"
+                />
+              </svg>
+              {/* Inner Label */}
+              <div className="absolute flex flex-col items-center justify-center text-center">
+                <span className="text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-wider">Goal</span>
+                <span className="text-lg font-black text-white">{weeklySummary.weeklyGoalMetPercentage}%</span>
+              </div>
+            </div>
+            <span className="text-[10px] text-indigo-300 font-bold bg-indigo-500/10 border border-indigo-500/25 px-2.5 py-0.5 rounded-full">
+              5hr Weekly Target
+            </span>
+          </div>
+
+          {/* Detailed Summary Stats Column */}
+          <div className="sm:col-span-2 grid grid-cols-2 gap-3">
+            <div className="p-3 rounded-xl bg-white/5 border border-white/5 space-y-1">
+              <span className="text-[10px] text-[var(--text-muted)] font-bold uppercase tracking-wider block">Consecutive Days</span>
+              <div className="flex items-baseline gap-1">
+                <span className="text-xl font-black text-white">{weeklySummary.consecutiveDays}</span>
+                <span className="text-xs font-bold text-amber-400">days 🔥</span>
+              </div>
+              <p className="text-[10px] text-[var(--text-muted)] leading-tight">Daily app engagement streak</p>
+            </div>
+
+            <div className="p-3 rounded-xl bg-white/5 border border-white/5 space-y-1">
+              <span className="text-[10px] text-[var(--text-muted)] font-bold uppercase tracking-wider block">Weekly Hours</span>
+              <div className="flex items-baseline gap-1">
+                <span className="text-xl font-black text-white">{weeklySummary.totalListeningHours}</span>
+                <span className="text-xs font-bold text-emerald-400">hours 🎧</span>
+              </div>
+              <p className="text-[10px] text-[var(--text-muted)] leading-tight">Total play time this week</p>
+            </div>
+
+            <div className="p-3 rounded-xl bg-white/5 border border-white/5 space-y-1">
+              <span className="text-[10px] text-[var(--text-muted)] font-bold uppercase tracking-wider block">Active Days</span>
+              <div className="flex items-baseline gap-1">
+                <span className="text-xl font-black text-white">{weeklySummary.daysActiveCount}</span>
+                <span className="text-xs font-bold text-indigo-400">/ 7 days 📅</span>
+              </div>
+              <p className="text-[10px] text-[var(--text-muted)] leading-tight">Days with active listening</p>
+            </div>
+
+            <div className="p-3 rounded-xl bg-gradient-to-br from-indigo-500/10 to-purple-500/10 border border-indigo-500/20 flex flex-col justify-between">
+              <div className="flex items-center gap-1">
+                <Sparkles className="w-3 h-3 text-indigo-300 animate-pulse" />
+                <span className="text-[9px] font-black text-indigo-200 uppercase tracking-wider">Status Badge</span>
+              </div>
+              <div>
+                <span className="text-xs font-bold text-white block">
+                  {weeklySummary.weeklyGoalMetPercentage >= 100 
+                    ? '🏆 Goal Achieved!' 
+                    : weeklySummary.weeklyGoalMetPercentage >= 50 
+                    ? '⚡ Almost There!' 
+                    : '🌱 Audio Explorer'}
+                </span>
+                <span className="text-[9px] text-[var(--text-muted)] block mt-0.5">Keep the rhythm alive!</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Genre Affinity Donut Chart Section (Recharts) */}
+      <div className="pt-4 border-t border-white/10 space-y-3">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-lg bg-purple-500/20 text-purple-300 border border-purple-500/30">
+              <Disc className="w-4 h-4 animate-spin-slow" />
+            </div>
+            <div>
+              <h4 className="text-xs font-bold text-white uppercase tracking-wider">
+                Genre Affinity Distribution
+              </h4>
+              <p className="text-[11px] text-[var(--text-muted)]">
+                Radio listening time broken down by genre, updated dynamically from station history
+              </p>
+            </div>
+          </div>
+          <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
+            Recharts Donut Chart
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center bg-white/5 p-4 rounded-2xl border border-white/10">
+          <div className="h-48 w-full min-h-[190px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={genreData}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={45}
+                  outerRadius={75}
+                  paddingAngle={4}
+                  dataKey="value"
+                  animationDuration={1000}
+                >
+                  {genreData.map((entry, index) => (
+                    <Cell key={`genre-cell-${index}`} fill={entry.color} stroke="rgba(0,0,0,0.4)" strokeWidth={2} />
+                  ))}
+                </Pie>
+                <Tooltip
+                  formatter={(val: any, name: any, item: any) => [
+                    `${val}% (${item.payload.count || 0} sessions)`,
+                    item.payload.name
+                  ]}
+                  contentStyle={{
+                    backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                    borderColor: 'rgba(255, 255, 255, 0.2)',
+                    borderRadius: '12px',
+                    fontSize: '11px',
+                    color: '#fff'
+                  }}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div className="space-y-2">
+            {genreData.map((item) => (
+              <div key={item.name} className="flex items-center justify-between text-xs p-2 rounded-xl bg-white/5 border border-white/5 hover:border-white/15 transition-all">
+                <div className="flex items-center gap-2">
+                  <span className="w-3 h-3 rounded-full shrink-0 shadow-sm" style={{ backgroundColor: item.color }} />
+                  <span className="font-semibold text-white">{item.name}</span>
+                </div>
+                <div className="flex items-center gap-2 font-mono text-[11px]">
+                  <span className="text-[var(--text-muted)]">{item.count} sessions</span>
+                  <span className="font-bold text-emerald-400">{item.value}%</span>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>

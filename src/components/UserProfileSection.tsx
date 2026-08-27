@@ -15,11 +15,16 @@ import {
   Heart,
   Shield,
   RefreshCw,
-  AlertCircle
+  AlertCircle,
+  Play,
+  Pause,
+  ArrowUpRight,
+  X
 } from 'lucide-react';
-import { UserProfile } from '../types';
+import { UserProfile, SyncStatusInfo } from '../types';
 import { firebaseService } from '../services/firebaseService';
 import { storageService } from '../services/storageService';
+import { audioEngine } from '../services/audioEngine';
 import { triggerHaptic } from '../utils/haptics';
 
 interface UserProfileSectionProps {
@@ -51,9 +56,36 @@ export const UserProfileSection: React.FC<UserProfileSectionProps> = ({
   const [conflict, setConflict] = useState<any | null>(null);
   const [resolving, setResolving] = useState(false);
 
+  // Manual Sync Now state & feedback
+  const [syncingNow, setSyncingNow] = useState(false);
+  const [syncFeedback, setSyncFeedback] = useState<{
+    success: boolean;
+    message: string;
+    timestamp: number;
+    syncedFavoritesCount: number;
+    syncedRecentsCount: number;
+    activeSession: {
+      isPlaying: boolean;
+      stationName: string | null;
+      stationId: string | null;
+    };
+    isGuest: boolean;
+  } | null>(null);
+  const [syncStatus, setSyncStatus] = useState<SyncStatusInfo>(() => firebaseService.getSyncStatus());
+
   // Cloud sync stats
-  const [favCount, setFavCount] = useState(0);
-  const [recentCount, setRecentCount] = useState(0);
+  const [favCount, setFavCount] = useState(() => storageService.getFavorites().length);
+  const [recentCount, setRecentCount] = useState(() => storageService.getRecents().length);
+
+  // Subscribe to sync status
+  useEffect(() => {
+    const unsubSync = firebaseService.subscribeSyncStatus((status) => {
+      setSyncStatus(status);
+    });
+    return () => {
+      unsubSync();
+    };
+  }, []);
 
   // Subscribe to sync conflicts
   useEffect(() => {
@@ -99,6 +131,58 @@ export const UserProfileSection: React.FC<UserProfileSectionProps> = ({
       navigator.clipboard.writeText(profile.uid);
       setCopiedUid(true);
       setTimeout(() => setCopiedUid(false), 2000);
+    }
+  };
+
+  const handleManualSyncNow = async () => {
+    if (syncingNow) return;
+    triggerHaptic('medium');
+    setSyncingNow(true);
+    setErrorMsg('');
+    try {
+      const audioState = audioEngine.getState();
+      const res = await firebaseService.triggerSyncNow({
+        isPlaying: audioState.isPlaying,
+        station: audioState.currentStation,
+        volume: audioState.volume
+      });
+
+      setSyncFeedback(res);
+
+      if (currentUser?.uid) {
+        const cloudFavs = await firebaseService.fetchFavoritesFromCloud();
+        setFavCount(cloudFavs.length);
+        const cloudRecents = await firebaseService.getCloudRecentStations();
+        setRecentCount(cloudRecents.length);
+      } else {
+        setFavCount(storageService.getFavorites().length);
+        setRecentCount(storageService.getRecents().length);
+      }
+
+      if (res.success) {
+        triggerHaptic('selection');
+      } else {
+        triggerHaptic('warning');
+      }
+    } catch (err: any) {
+      console.error('Manual sync failed:', err);
+      const audioState = audioEngine.getState();
+      setSyncFeedback({
+        success: false,
+        message: err?.message || 'Sync failed. Local cache remains preserved.',
+        timestamp: Date.now(),
+        syncedFavoritesCount: favCount,
+        syncedRecentsCount: recentCount,
+        activeSession: {
+          isPlaying: audioState.isPlaying,
+          stationName: audioState.currentStation?.name || null,
+          stationId: audioState.currentStation?.id || null
+        },
+        isGuest: !currentUser
+      });
+      triggerHaptic('warning');
+    } finally {
+      setSyncingNow(false);
     }
   };
 
@@ -154,12 +238,27 @@ export const UserProfileSection: React.FC<UserProfileSectionProps> = ({
                 </span>
               </div>
               <p className="text-xs text-[var(--text-muted)] mt-0.5 max-w-xl">
-                Sign in to customize your cross-platform avatar and display name, and seamlessly synchronize your favorite radio stations, 10 recent stations, and recurring alarms across Web, Android, iOS, and Desktop.
+                Sign in to customize your cross-platform avatar and display name, and seamlessly synchronize your favorite radio stations, live playback state, 10 recent stations, and recurring alarms across Web, Android, iOS, and Desktop.
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2 flex-wrap shrink-0">
+            <button
+              type="button"
+              onClick={handleManualSyncNow}
+              disabled={syncingNow}
+              className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all cursor-pointer shadow-md ${
+                syncingNow
+                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                  : 'bg-white/10 hover:bg-white/20 text-white border border-white/10'
+              }`}
+              title="Verify local storage cache and state"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${syncingNow ? 'animate-spin' : ''}`} />
+              <span>{syncingNow ? 'Syncing...' : 'Sync Local Cache'}</span>
+            </button>
+
             {onOpenAuth && (
               <button
                 onClick={onOpenAuth}
@@ -183,6 +282,32 @@ export const UserProfileSection: React.FC<UserProfileSectionProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Sync Feedback Alert for Guest */}
+        {syncFeedback && (
+          <div className="p-4 rounded-2xl bg-black/40 border border-emerald-500/30 flex items-start justify-between gap-3 animate-fadeIn">
+            <div className="flex items-start gap-2.5">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+              <div>
+                <div className="text-xs font-bold text-emerald-300">
+                  {syncFeedback.message}
+                </div>
+                <div className="text-[11px] text-[var(--text-muted)] mt-1 flex items-center gap-3">
+                  <span>Favorites: {syncFeedback.syncedFavoritesCount}</span>
+                  <span>•</span>
+                  <span>Session: {syncFeedback.activeSession.isPlaying ? 'Streaming' : 'Idle'}</span>
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSyncFeedback(null)}
+              className="p-1 rounded-lg text-[var(--text-muted)] hover:text-white transition-colors"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
       </div>
     );
   }
@@ -191,7 +316,7 @@ export const UserProfileSection: React.FC<UserProfileSectionProps> = ({
 
   return (
     <div className="p-6 rounded-3xl bg-[var(--surface-main)]/80 backdrop-blur-xl border border-[var(--border-color)] shadow-xl shadow-black/20 space-y-6">
-      {/* Header with Title & Sign Out */}
+      {/* Header with Title, Sync Now & Sign Out */}
       <div className="flex items-center justify-between flex-wrap gap-3 pb-4 border-b border-[var(--border-color)]">
         <div className="flex items-center gap-3">
           <div className="p-2.5 rounded-2xl bg-[var(--accent-primary)]/20 text-[var(--accent-primary)] border border-[var(--accent-primary)]/30">
@@ -206,19 +331,107 @@ export const UserProfileSection: React.FC<UserProfileSectionProps> = ({
               </span>
             </div>
             <p className="text-xs text-[var(--text-muted)]">
-              Your profile data and preferences sync in real-time across all your logged-in devices
+              Your profile data, favorites, and live playback session sync in real-time across all your devices
             </p>
           </div>
         </div>
 
-        <button
-          onClick={handleSignOut}
-          className="px-3.5 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/20 text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer"
-        >
-          <LogOut className="w-3.5 h-3.5" />
-          <span>Sign Out</span>
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Prominent Sync Now Button in Header */}
+          <button
+            type="button"
+            onClick={handleManualSyncNow}
+            disabled={syncingNow}
+            className={`px-4 py-2 rounded-xl font-bold text-xs flex items-center gap-2 transition-all cursor-pointer shadow-lg ${
+              syncingNow
+                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 animate-pulse'
+                : 'bg-emerald-500 hover:bg-emerald-400 text-black hover:scale-[1.02] shadow-emerald-500/20'
+            }`}
+            title="Force immediate push of local favorites and playback session to Firebase Firestore"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${syncingNow ? 'animate-spin' : ''}`} />
+            <span>{syncingNow ? 'Syncing with Cloud...' : 'Sync Now'}</span>
+          </button>
+
+          <button
+            onClick={handleSignOut}
+            className="px-3.5 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/20 text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span>Sign Out</span>
+          </button>
+        </div>
       </div>
+
+      {/* Sync Now Feedback Banner */}
+      {syncFeedback && (
+        <div
+          className={`p-4 rounded-2xl border flex items-start justify-between gap-3 animate-fadeIn transition-all ${
+            syncFeedback.success
+              ? 'bg-gradient-to-r from-emerald-500/20 via-[var(--surface-main)] to-teal-500/20 border-emerald-500/40 shadow-lg shadow-emerald-500/10'
+              : 'bg-rose-500/20 border-rose-500/40 text-rose-200'
+          }`}
+        >
+          <div className="flex items-start gap-3">
+            {syncFeedback.success ? (
+              <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shrink-0">
+                <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+              </div>
+            ) : (
+              <div className="p-2 rounded-xl bg-rose-500/20 text-rose-300 border border-rose-500/30 shrink-0">
+                <AlertCircle className="w-5 h-5 text-rose-400" />
+              </div>
+            )}
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="text-xs font-bold text-[var(--text-primary)]">
+                  {syncFeedback.success ? 'Cloud Sync Successful' : 'Sync Notice'}
+                </h4>
+                <span className="text-[10px] px-2 py-0.5 rounded-md bg-white/10 text-[var(--text-muted)] font-mono">
+                  {new Date(syncFeedback.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                </span>
+              </div>
+              <p className="text-xs text-emerald-300/90 font-medium mt-1 leading-relaxed">
+                {syncFeedback.message}
+              </p>
+
+              {syncFeedback.success && (
+                <div className="flex items-center gap-3 flex-wrap mt-2 pt-2 border-t border-white/10 text-[11px] text-[var(--text-muted)]">
+                  <div className="flex items-center gap-1.5 text-emerald-300 font-semibold">
+                    <Heart className="w-3.5 h-3.5 text-rose-400" />
+                    <span>{syncFeedback.syncedFavoritesCount} Favorites pushed</span>
+                  </div>
+                  <span>•</span>
+                  <div className="flex items-center gap-1.5 text-sky-300 font-semibold">
+                    {syncFeedback.activeSession.isPlaying ? (
+                      <>
+                        <Play className="w-3.5 h-3.5 text-emerald-400 fill-emerald-400" />
+                        <span>Live Session: {syncFeedback.activeSession.stationName || 'Playing'}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Pause className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Session: {syncFeedback.activeSession.stationName ? `Standby (${syncFeedback.activeSession.stationName})` : 'Idle / Standby'}</span>
+                      </>
+                    )}
+                  </div>
+                  <span>•</span>
+                  <span className="text-[var(--text-muted)]">Target: Firestore cloud</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setSyncFeedback(null)}
+            className="p-1 rounded-lg text-[var(--text-muted)] hover:text-white transition-colors cursor-pointer"
+            title="Dismiss notification"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* Conflict Resolution UI */}
       {conflict && (
@@ -473,24 +686,37 @@ export const UserProfileSection: React.FC<UserProfileSectionProps> = ({
               </div>
             </div>
 
-            {/* Cloud Sync Status Cards */}
+            {/* Cloud Sync Status Cards & Live Manual Trigger */}
             <div className="pt-2">
               <div className="flex items-center justify-between mb-2">
                 <label className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
                   Synchronized Cloud Assets (Firestore)
                 </label>
-                <button
-                  type="button"
-                  onClick={() => {
-                    triggerHaptic('light');
-                    firebaseService.simulateConflict();
-                  }}
-                  className="text-[10px] font-bold text-amber-300 hover:text-amber-200 hover:underline flex items-center gap-1 cursor-pointer"
-                  title="Generate a dummy local vs cloud sync conflict to test manual version resolution"
-                >
-                  <AlertCircle className="w-3 h-3 animate-pulse" />
-                  <span>Simulate Sync Conflict</span>
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleManualSyncNow}
+                    disabled={syncingNow}
+                    className="text-[11px] font-bold text-emerald-400 hover:text-emerald-300 flex items-center gap-1.5 transition-colors cursor-pointer"
+                    title="Force immediate push of local state to Firestore"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${syncingNow ? 'animate-spin' : ''}`} />
+                    <span>{syncingNow ? 'Syncing...' : 'Sync Now'}</span>
+                  </button>
+                  <span className="text-[var(--text-muted)]">•</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      triggerHaptic('light');
+                      firebaseService.simulateConflict();
+                    }}
+                    className="text-[10px] font-bold text-amber-300 hover:text-amber-200 hover:underline flex items-center gap-1 cursor-pointer"
+                    title="Generate a dummy local vs cloud sync conflict to test manual version resolution"
+                  >
+                    <AlertCircle className="w-3 h-3 animate-pulse" />
+                    <span>Simulate Conflict</span>
+                  </button>
+                </div>
               </div>
               <div className="grid grid-cols-3 gap-2.5">
                 <div className="p-3 rounded-2xl bg-white/5 border border-white/5 flex flex-col items-center text-center">
@@ -507,14 +733,25 @@ export const UserProfileSection: React.FC<UserProfileSectionProps> = ({
 
                 <div className="p-3 rounded-2xl bg-white/5 border border-white/5 flex flex-col items-center text-center">
                   <Bell className="w-4 h-4 text-amber-400 mb-1" />
-                  <span className="text-sm font-bold text-[var(--text-primary)]">Synced</span>
-                  <span className="text-[10px] text-[var(--text-muted)]">Alarms & DSP</span>
+                  <span className="text-sm font-bold text-[var(--text-primary)]">Live DSP</span>
+                  <span className="text-[10px] text-[var(--text-muted)]">Alarms & Presets</span>
                 </div>
               </div>
             </div>
 
-            {/* Submit Button */}
-            <div className="pt-2 flex justify-end">
+            {/* Action Buttons: Save & Force Sync */}
+            <div className="pt-2 flex items-center justify-between flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={handleManualSyncNow}
+                disabled={syncingNow}
+                className="px-4 py-3 rounded-2xl font-bold text-xs bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 transition-all cursor-pointer flex items-center gap-2"
+                title="Force push current local playback state and favorites to Firestore"
+              >
+                <RefreshCw className={`w-4 h-4 ${syncingNow ? 'animate-spin text-emerald-400' : 'text-emerald-400'}`} />
+                <span>{syncingNow ? 'Pushing to Cloud...' : 'Force Sync with Firebase'}</span>
+              </button>
+
               <button
                 type="submit"
                 disabled={saving}
@@ -539,3 +776,4 @@ export const UserProfileSection: React.FC<UserProfileSectionProps> = ({
     </div>
   );
 };
+

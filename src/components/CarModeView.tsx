@@ -15,6 +15,13 @@ export const CarModeView: React.FC<CarModeViewProps> = ({ onClose, stations }) =
   const [station, setStation] = useState<RadioStation | null>(null);
   const [volume, setVolume] = useState(0.85);
   const [favorites, setFavorites] = useState<RadioStation[]>(() => storageService.getFavorites());
+  const [imgError, setImgError] = useState(false);
+
+  const fallbackArt = 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=400&auto=format&fit=crop&q=80';
+
+  useEffect(() => {
+    setImgError(false);
+  }, [station?.id]);
 
   useEffect(() => {
     const unsub = audioEngine.subscribe((state) => {
@@ -87,12 +94,10 @@ export const CarModeView: React.FC<CarModeViewProps> = ({ onClose, stations }) =
       <div className="my-auto flex flex-col items-center text-center">
         <div className="relative w-40 h-40 sm:w-56 sm:h-56 rounded-3xl overflow-hidden shadow-2xl bg-zinc-900 border-2 border-white/20 mb-6">
           <img
-            src={station?.imageUrl || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=400&auto=format&fit=crop&q=80'}
+            src={imgError || !station?.imageUrl ? fallbackArt : station.imageUrl}
             alt={station?.name || 'Radio'}
             className="w-full h-full object-cover"
-            onError={(e) => {
-              (e.target as HTMLElement).style.display = 'none';
-            }}
+            onError={() => setImgError(true)}
           />
           {isPlaying && (
             <div className="absolute top-2 right-2 px-2.5 py-1 rounded-full bg-red-600 font-bold text-xs">

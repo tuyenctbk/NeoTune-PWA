@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { X, Play, Pause, RotateCcw, RotateCw, Gauge, Clock, Calendar, RefreshCw, AlertCircle, Share2, Check } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { X, Play, Pause, RotateCcw, RotateCw, Gauge, Clock, Calendar, RefreshCw, AlertCircle, Share2, Check, Bookmark } from 'lucide-react';
 import { PodcastShow, PodcastEpisode, RadioStation } from '../types';
 import { apiService } from '../services/apiService';
 import { audioEngine } from '../services/audioEngine';
@@ -26,6 +26,30 @@ export const PodcastEpisodeDrawer: React.FC<PodcastEpisodeDrawerProps> = ({
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [sharedEpisodeId, setSharedEpisodeId] = useState<string | null>(null);
+  const [displayLimit, setDisplayLimit] = useState(25);
+  const episodeSentinelRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    setDisplayLimit(25);
+  }, [show?.id]);
+
+  useEffect(() => {
+    if (loading || displayLimit >= episodes.length) return;
+    const sentinel = episodeSentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setDisplayLimit((prev) => Math.min(episodes.length, prev + 25));
+        }
+      },
+      { root: null, rootMargin: '250px', threshold: 0.01 }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [loading, displayLimit, episodes.length]);
 
   useEffect(() => {
     if (isOpen && show && show.feedUrl) {
@@ -54,9 +78,8 @@ export const PodcastEpisodeDrawer: React.FC<PodcastEpisodeDrawerProps> = ({
     return unsub;
   }, []);
 
-  if (!isOpen || !show) return null;
-
   const handleShareEpisode = async (e: React.MouseEvent, episode: PodcastEpisode) => {
+    if (!show) return;
     e.stopPropagation();
     const payload = createPodcastEpisodeShareData(show, episode);
     const result = await shareContent(payload);
@@ -65,33 +88,6 @@ export const PodcastEpisodeDrawer: React.FC<PodcastEpisodeDrawerProps> = ({
       setTimeout(() => setSharedEpisodeId(null), 2500);
     }
   };
-
-  useEffect(() => {
-    if (isOpen && show && show.feedUrl) {
-      setLoading(true);
-      setError(null);
-      apiService.getPodcastEpisodes(show.feedUrl, show.id)
-        .then((items) => {
-          setEpisodes(items);
-          setLoading(false);
-        })
-        .catch(() => {
-          setError('Could not load RSS feed. Stream may be protected or invalid.');
-          setLoading(false);
-        });
-    }
-  }, [isOpen, show]);
-
-  useEffect(() => {
-    const unsub = audioEngine.subscribe((state) => {
-      setIsPlaying(state.isPlaying);
-      setActiveEpId(state.currentEpisode?.id || null);
-      setCurrentTime(state.currentTime);
-      setDuration(state.duration);
-      setSpeed(state.playbackSpeed);
-    });
-    return unsub;
-  }, []);
 
   if (!isOpen || !show) return null;
 
@@ -127,6 +123,16 @@ export const PodcastEpisodeDrawer: React.FC<PodcastEpisodeDrawerProps> = ({
     const m = Math.floor((totalSec % 3600) / 60);
     const s = totalSec % 60;
     if (h > 0) return `${h}h ${m}m`;
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  };
+
+  const formatTimestampSec = (sec: number) => {
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = Math.floor(sec % 60);
+    if (h > 0) {
+      return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    }
     return `${m}:${s.toString().padStart(2, '0')}`;
   };
 
@@ -243,92 +249,141 @@ export const PodcastEpisodeDrawer: React.FC<PodcastEpisodeDrawerProps> = ({
               No audio episodes found in this podcast feed.
             </div>
           ) : (
-            episodes.map((ep, idx) => {
-              const isCurrent = activeEpId === ep.id;
-              const savedProgress = storageService.getPodcastProgress(ep.audioUrl);
-              const progressPercent = savedProgress && savedProgress.durationMs > 0
-                ? (savedProgress.positionMs / savedProgress.durationMs) * 100
-                : 0;
+            <>
+              {episodes.slice(0, displayLimit).map((ep, idx) => {
+                const isCurrent = activeEpId === ep.id;
+                const savedProgress = storageService.getPodcastProgress(ep.audioUrl);
+                const progressPercent = savedProgress && savedProgress.durationMs > 0
+                  ? (savedProgress.positionMs / savedProgress.durationMs) * 100
+                  : 0;
 
-              return (
-                <div
-                  key={ep.id || idx}
-                  onClick={() => handlePlayEpisode(ep)}
-                  className={`p-3.5 rounded-xl border transition-all cursor-pointer ${
-                    isCurrent
-                      ? 'bg-[var(--accent-secondary)]/15 border-[var(--accent-secondary)] shadow-md'
-                      : 'bg-white/5 border-white/5 hover:border-white/10 hover:bg-white/10'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1 text-[11px] text-[var(--text-muted)]">
-                        <span className="flex items-center gap-1">
-                          <Calendar className="w-3 h-3" />
-                          {ep.pubDate}
-                        </span>
-                        <span>•</span>
-                        <span className="flex items-center gap-1 font-mono">
-                          <Clock className="w-3 h-3" />
-                          {formatDuration(ep.durationMs)}
-                        </span>
+                return (
+                  <div
+                    key={ep.id || idx}
+                    onClick={() => handlePlayEpisode(ep)}
+                    className={`p-3.5 rounded-xl border transition-all cursor-pointer ${
+                      isCurrent
+                        ? 'bg-[var(--accent-secondary)]/15 border-[var(--accent-secondary)] shadow-md'
+                        : 'bg-white/5 border-white/5 hover:border-white/10 hover:bg-white/10'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1 text-[11px] text-[var(--text-muted)]">
+                          <span className="flex items-center gap-1">
+                            <Calendar className="w-3 h-3" />
+                            {ep.pubDate}
+                          </span>
+                          <span>•</span>
+                          <span className="flex items-center gap-1 font-mono">
+                            <Clock className="w-3 h-3" />
+                            {formatDuration(ep.durationMs)}
+                          </span>
+                        </div>
+
+                        <h4 className="text-sm font-semibold text-[var(--text-primary)] leading-snug line-clamp-2">
+                          {ep.title}
+                        </h4>
+
+                        <p className="text-xs text-[var(--text-muted)] line-clamp-2 mt-1 leading-relaxed">
+                          {ep.description}
+                        </p>
                       </div>
 
-                      <h4 className="text-sm font-semibold text-[var(--text-primary)] leading-snug line-clamp-2">
-                        {ep.title}
-                      </h4>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (show) {
+                              storageService.toggleListenLater({
+                                type: 'podcast_episode',
+                                title: ep.title,
+                                subtitle: show.name,
+                                audioUrl: ep.audioUrl,
+                                imageUrl: ep.artworkUrl || show.imageUrl,
+                                episode: ep,
+                                show: show
+                              });
+                            }
+                          }}
+                          className={`p-2 rounded-xl transition-colors cursor-pointer ${
+                            storageService.isInListenLater(ep.audioUrl) || storageService.isInListenLater(ep.id)
+                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                              : 'bg-white/10 hover:bg-white/20 text-[var(--text-muted)] hover:text-white'
+                          }`}
+                          title="Save to Listen Later Queue"
+                        >
+                          <Bookmark className={`w-4 h-4 ${storageService.isInListenLater(ep.audioUrl) || storageService.isInListenLater(ep.id) ? 'fill-current' : ''}`} />
+                        </button>
 
-                      <p className="text-xs text-[var(--text-muted)] line-clamp-2 mt-1 leading-relaxed">
-                        {ep.description}
-                      </p>
+                        <button
+                          onClick={(e) => handleShareEpisode(e, ep)}
+                          className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-[var(--text-muted)] hover:text-white transition-colors cursor-pointer"
+                          title="Share episode via Web Share API"
+                        >
+                          {sharedEpisodeId === ep.id ? (
+                            <Check className="w-4 h-4 text-emerald-400" />
+                          ) : (
+                            <Share2 className="w-4 h-4" />
+                          )}
+                        </button>
+
+                        <button
+                          onClick={() => handlePlayEpisode(ep)}
+                          className={`p-2.5 rounded-full transition-colors ${
+                            isCurrent && isPlaying
+                              ? 'bg-[var(--accent-secondary)] text-white'
+                              : 'bg-white/10 hover:bg-white/20 text-white'
+                          }`}
+                          aria-label="Play episode"
+                        >
+                          {isCurrent && isPlaying ? (
+                            <Pause className="w-4 h-4 fill-current" />
+                          ) : (
+                            <Play className="w-4 h-4 fill-current ml-0.5" />
+                          )}
+                        </button>
+                      </div>
                     </div>
 
-                    <div className="flex items-center gap-2 shrink-0">
-                      <button
-                        onClick={(e) => handleShareEpisode(e, ep)}
-                        className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-[var(--text-muted)] hover:text-white transition-colors"
-                        title="Share episode via Web Share API"
-                      >
-                        {sharedEpisodeId === ep.id ? (
-                          <Check className="w-4 h-4 text-emerald-400" />
-                        ) : (
-                          <Share2 className="w-4 h-4" />
-                        )}
-                      </button>
-
-                      <button
-                        onClick={() => handlePlayEpisode(ep)}
-                        className={`p-2.5 rounded-full transition-colors ${
-                          isCurrent && isPlaying
-                            ? 'bg-[var(--accent-secondary)] text-white'
-                            : 'bg-white/10 hover:bg-white/20 text-white'
-                        }`}
-                        aria-label="Play episode"
-                      >
-                        {isCurrent && isPlaying ? (
-                          <Pause className="w-4 h-4 fill-current" />
-                        ) : (
-                          <Play className="w-4 h-4 fill-current ml-0.5" />
-                        )}
-                      </button>
-                    </div>
+                    {/* Stored exact resume progress bar */}
+                    {savedProgress && savedProgress.positionMs > 3000 && (
+                      <div className="mt-2.5 pt-2 border-t border-white/5 flex items-center justify-between text-[11px] text-[var(--text-muted)] font-mono flex-wrap gap-2">
+                        <div className="flex items-center gap-1.5 text-[var(--accent-secondary)] font-bold">
+                          <Clock className="w-3.5 h-3.5 animate-pulse" />
+                          <span>
+                            Resume at {formatTimestampSec(savedProgress.positionMs / 1000)}
+                            <span className="opacity-60 text-[10px] ml-1 font-normal">
+                              ({Math.floor(progressPercent)}%)
+                            </span>
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="w-20 sm:w-24 h-1.5 bg-black/60 rounded-full overflow-hidden border border-white/10">
+                            <div
+                              className="h-full bg-gradient-to-r from-amber-400 to-[var(--accent-secondary)] rounded-full"
+                              style={{ width: `${Math.min(100, Math.max(0, progressPercent))}%` }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
+                );
+              })}
 
-                  {/* Stored resume progress bar */}
-                  {progressPercent > 5 && (
-                    <div className="mt-2.5 pt-2 border-t border-white/5 flex items-center justify-between text-[10px] text-[var(--text-muted)]">
-                      <span>Resume progress: {Math.floor(progressPercent)}%</span>
-                      <div className="w-24 h-1 bg-black/40 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-[var(--accent-secondary)] rounded-full"
-                          style={{ width: `${progressPercent}%` }}
-                        />
-                      </div>
-                    </div>
-                  )}
+              {/* Infinite Scroll Sentinel for Episodes */}
+              {displayLimit < episodes.length && (
+                <div ref={episodeSentinelRef} className="py-4 text-center">
+                  <button
+                    onClick={() => setDisplayLimit((prev) => Math.min(episodes.length, prev + 25))}
+                    className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-xs text-[var(--text-muted)] hover:text-white transition-colors cursor-pointer"
+                  >
+                    Showing {displayLimit} of {episodes.length} episodes — Scroll or click to load more
+                  </button>
                 </div>
-              );
-            })
+              )}
+            </>
           )}
         </div>
       </div>

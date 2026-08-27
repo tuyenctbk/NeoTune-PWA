@@ -3,6 +3,8 @@
  * Provides subtle tactile feedback for mobile touch interactions
  */
 
+import { storageService } from '../services/storageService';
+
 export type HapticType = 
   | 'light' 
   | 'medium' 
@@ -25,6 +27,14 @@ export type HapticType =
 export const triggerHaptic = (type: HapticType = 'light') => {
   if (typeof window === 'undefined' || !('navigator' in window) || !('vibrate' in navigator)) {
     return;
+  }
+
+  try {
+    if (!storageService.getHapticsEnabled()) {
+      return;
+    }
+  } catch {
+    // Graceful fallback during load/circular dependencies
   }
 
   try {

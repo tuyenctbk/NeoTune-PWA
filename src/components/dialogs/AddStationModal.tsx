@@ -406,6 +406,37 @@ export const AddStationModal: React.FC<AddStationModalProps> = ({ isOpen, onClos
               onChange={(e) => setCustomTagsInput(e.target.value)}
               className="w-full px-3.5 py-2 rounded-xl bg-white/5 border border-white/10 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-primary)]"
             />
+            <div className="flex flex-wrap gap-1.5 mt-1.5">
+              {['Focus', 'Workout', 'Chill', 'Ambient', 'Study', 'Party'].map(tag => {
+                const currentTags = customTagsInput.split(',').map(t => t.trim().toLowerCase());
+                const isSelected = currentTags.includes(tag.toLowerCase());
+                const handleTagClick = () => {
+                  let updatedTags;
+                  if (isSelected) {
+                    updatedTags = customTagsInput.split(',')
+                      .map(t => t.trim())
+                      .filter(t => t.toLowerCase() !== tag.toLowerCase());
+                  } else {
+                    updatedTags = [...customTagsInput.split(',').map(t => t.trim()).filter(Boolean), tag];
+                  }
+                  setCustomTagsInput(updatedTags.join(', '));
+                };
+                return (
+                  <button
+                    key={`suggested_tag_${tag}`}
+                    type="button"
+                    onClick={handleTagClick}
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-all cursor-pointer ${
+                      isSelected
+                        ? 'bg-[var(--accent-primary)] text-black border-[var(--accent-primary)]'
+                        : 'bg-white/5 text-[var(--text-muted)] border-white/10 hover:border-white/25 hover:text-white'
+                    }`}
+                  >
+                    {tag}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
 

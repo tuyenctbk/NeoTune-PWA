@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, LogIn, Mail, Lock, User, Check, AlertCircle, Sparkles, Cloud, RefreshCw, LogOut, Shield } from 'lucide-react';
+import { X, Check, AlertCircle, Cloud, LogOut } from 'lucide-react';
 import { firebaseService } from '../../services/firebaseService';
 import { UserProfile } from '../../types';
 
@@ -16,61 +16,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   currentUser,
   onLoginSuccess
 }) => {
-  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
-  const handleGoogleLogin = async () => {
+  const handleProviderLogin = async (
+    providerName: string,
+    loginFn: () => Promise<UserProfile | null>
+  ) => {
     setLoading(true);
     setError(null);
     try {
-      const user = await firebaseService.signInWithGoogle();
-      if (user) {
-        setSuccessMsg(`Welcome, ${user.displayName || 'Audiophile'}! Cloud sync active.`);
-        onLoginSuccess?.(user);
-        setTimeout(() => {
-          setSuccessMsg(null);
-          onClose();
-        }, 1000);
-      }
-    } catch (err: any) {
-      setError(err.message || 'Google sign in failed');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleGithubLogin = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const user = await firebaseService.signInWithGithub();
-      if (user) {
-        setSuccessMsg(`Welcome, ${user.displayName || 'Developer'}! Cloud sync active.`);
-        onLoginSuccess?.(user);
-        setTimeout(() => {
-          setSuccessMsg(null);
-          onClose();
-        }, 1000);
-      }
-    } catch (err: any) {
-      setError(err.message || 'GitHub sign in failed');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleTwitterLogin = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const user = await firebaseService.signInWithTwitter();
+      const user = await loginFn();
       if (user) {
         setSuccessMsg(`Welcome, ${user.displayName || 'User'}! Cloud sync active.`);
         onLoginSuccess?.(user);
@@ -80,39 +39,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         }, 1000);
       }
     } catch (err: any) {
-      setError(err.message || 'Twitter sign in failed');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleEmailAuth = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!email.trim() || !password.trim()) {
-      setError('Please fill in both email and password.');
-      return;
-    }
-    setLoading(true);
-    setError(null);
-
-    try {
-      let user: UserProfile | null = null;
-      if (mode === 'signin') {
-        user = await firebaseService.signInWithEmail(email, password);
-      } else {
-        user = await firebaseService.signUpWithEmail(email, password, name.trim());
-      }
-
-      if (user) {
-        setSuccessMsg(mode === 'signin' ? 'Signed in successfully!' : 'Account created! Cloud sync enabled.');
-        onLoginSuccess?.(user);
-        setTimeout(() => {
-          setSuccessMsg(null);
-          onClose();
-        }, 1000);
-      }
-    } catch (err: any) {
-      setError(err.message || 'Authentication error.');
+      setError(err.message || `${providerName} sign in failed`);
     } finally {
       setLoading(false);
     }
@@ -148,7 +75,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 {currentUser ? 'NeoTune Cloud Account' : 'Sign in to NeoTune'}
               </h3>
               <p className="text-xs text-[var(--text-muted)]">
-                Sync favorites, alarms & audio EQ across all devices
+                Connect via Social Networks to sync across devices
               </p>
             </div>
           </div>
@@ -225,184 +152,200 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </div>
           </div>
         ) : (
-          /* Sign In / Sign Up Form */
-          <div className="mt-5 space-y-4">
-            {/* Social Logins */}
-            <div className="space-y-2">
-              {/* Google 1-Click Login Button */}
+          /* Top Social Networks Sign In Options */
+          <div className="mt-2 space-y-3">
+            <div className="text-xs font-semibold text-zinc-400 text-center mb-1">
+              Choose your social network to sign in
+            </div>
+
+            {/* Google 1-Click Login Button */}
+            <button
+              onClick={() => handleProviderLogin('Google', () => firebaseService.signInWithGoogle())}
+              disabled={loading}
+              className="w-full py-2.5 px-4 rounded-xl bg-white text-zinc-900 hover:bg-slate-100 font-bold text-xs sm:text-sm flex items-center justify-center gap-3 shadow-lg shadow-white/10 transition-all cursor-pointer"
+            >
+              <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+                <path
+                  fill="#4285F4"
+                  d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z"
+                />
+                <path
+                  fill="#34A853"
+                  d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z"
+                />
+                <path
+                  fill="#FBBC05"
+                  d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.99 0 12s.45 3.82 1.25 5.42l4.03-3.15z"
+                />
+                <path
+                  fill="#EA4335"
+                  d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
+                />
+              </svg>
+              <span>Continue with Google</span>
+            </button>
+
+            {/* Apple 1-Click Login Button */}
+            <button
+              onClick={() => handleProviderLogin('Apple', () => firebaseService.signInWithApple())}
+              disabled={loading}
+              className="w-full py-2.5 px-4 rounded-xl bg-black hover:bg-zinc-900 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-3 border border-white/20 transition-all cursor-pointer"
+            >
+              <svg className="w-4 h-4 fill-current shrink-0" viewBox="0 0 24 24">
+                <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 6.32c.68-.82 1.13-1.97.99-3.12-1 .04-2.22.67-2.92 1.49-.63.73-1.18 1.91-1.03 3.04 1.12.09 2.28-.59 2.96-1.41z" />
+              </svg>
+              <span>Continue with Apple</span>
+            </button>
+
+            {/* Top 10 Social Networks Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-1">
+              {/* X / Twitter */}
               <button
-                onClick={handleGoogleLogin}
+                onClick={() => handleProviderLogin('X', () => firebaseService.signInWithTwitter())}
                 disabled={loading}
-                className="w-full py-2.5 px-4 rounded-xl bg-white text-zinc-900 hover:bg-slate-100 font-bold text-xs sm:text-sm flex items-center justify-center gap-3 shadow-lg shadow-white/10 transition-all cursor-pointer"
+                className="py-2.5 px-3 rounded-xl bg-black hover:bg-zinc-900 text-white font-semibold text-xs flex items-center justify-start gap-2 border border-white/15 transition-all cursor-pointer"
+                title="Sign in with X"
               >
-                <svg className="w-4 h-4" viewBox="0 0 24 24">
-                  <path
-                    fill="#4285F4"
-                    d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z"
-                  />
-                  <path
-                    fill="#34A853"
-                    d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z"
-                  />
-                  <path
-                    fill="#FBBC05"
-                    d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.99 0 12s.45 3.82 1.25 5.42l4.03-3.15z"
-                  />
-                  <path
-                    fill="#EA4335"
-                    d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
-                  />
+                <svg className="w-3.5 h-3.5 fill-current shrink-0" viewBox="0 0 24 24">
+                  <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
                 </svg>
-                <span>Continue with Google</span>
+                <span className="truncate">X (Twitter)</span>
               </button>
 
-              <div className="grid grid-cols-2 gap-2">
-                {/* GitHub Provider */}
-                <button
-                  onClick={handleGithubLogin}
-                  disabled={loading}
-                  className="py-2.5 px-3 rounded-xl bg-[#24292e] hover:bg-[#2f363d] text-white font-semibold text-xs flex items-center justify-center gap-2 border border-white/10 transition-all cursor-pointer"
-                >
-                  <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
-                    <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
-                  </svg>
-                  <span>GitHub</span>
-                </button>
-
-                {/* Twitter Provider */}
-                <button
-                  onClick={handleTwitterLogin}
-                  disabled={loading}
-                  className="py-2.5 px-3 rounded-xl bg-[#1DA1F2] hover:bg-[#1a8cd8] text-white font-semibold text-xs flex items-center justify-center gap-2 border border-white/10 transition-all cursor-pointer"
-                >
-                  <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
-                    <path d="M23.953 4.57a10 10 0 01-2.825.775 4.958 4.958 0 002.163-2.723c-.951.555-2.005.959-3.127 1.184a4.92 4.92 0 00-8.384 4.482C7.69 8.095 4.067 6.13 1.64 3.162a4.822 4.822 0 00-.666 2.475c0 1.71.87 3.213 2.188 4.096a4.904 4.904 0 01-2.228-.616v.06a4.923 4.923 0 003.946 4.827 4.996 4.996 0 01-2.212.085 4.936 4.936 0 004.604 3.417 9.867 9.867 0 01-6.102 2.105c-.39 0-.779-.023-1.17-.067a13.995 13.995 0 007.557 2.209c9.053 0 13.998-7.496 13.998-13.985 0-.21 0-.42-.015-.63A9.936 9.936 0 0024 4.59z" />
-                  </svg>
-                  <span>Twitter / X</span>
-                </button>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3 my-2">
-              <div className="flex-1 h-px bg-white/10" />
-              <span className="text-[10px] uppercase font-bold text-[var(--text-muted)] tracking-wider">
-                Or with Email
-              </span>
-              <div className="flex-1 h-px bg-white/10" />
-            </div>
-
-            {/* Mode Switcher */}
-            <div className="grid grid-cols-2 p-1 rounded-xl bg-black/30 border border-white/5 text-xs font-semibold">
+              {/* Facebook */}
               <button
-                type="button"
-                onClick={() => { setMode('signin'); setError(null); }}
-                className={`py-1.5 rounded-lg transition-all cursor-pointer ${
-                  mode === 'signin'
-                    ? 'bg-[var(--accent-primary)] text-black shadow-md'
-                    : 'text-[var(--text-muted)] hover:text-white'
-                }`}
-              >
-                Sign In
-              </button>
-              <button
-                type="button"
-                onClick={() => { setMode('signup'); setError(null); }}
-                className={`py-1.5 rounded-lg transition-all cursor-pointer ${
-                  mode === 'signup'
-                    ? 'bg-[var(--accent-primary)] text-black shadow-md'
-                    : 'text-[var(--text-muted)] hover:text-white'
-                }`}
-              >
-                Create Account
-              </button>
-            </div>
-
-            {/* Form */}
-            <form onSubmit={handleEmailAuth} className="space-y-3">
-              {mode === 'signup' && (
-                <div>
-                  <label className="text-[11px] font-semibold uppercase text-[var(--text-muted)] mb-1 block">
-                    Display Name
-                  </label>
-                  <div className="relative">
-                    <User className="w-4 h-4 text-[var(--text-muted)] absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="text"
-                      placeholder="e.g. Alex"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      className="w-full pl-9 pr-3 py-2 rounded-xl bg-white/5 border border-white/10 text-xs text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-primary)]"
-                    />
-                  </div>
-                </div>
-              )}
-
-              <div>
-                <label className="text-[11px] font-semibold uppercase text-[var(--text-muted)] mb-1 block">
-                  Email Address
-                </label>
-                <div className="relative">
-                  <Mail className="w-4 h-4 text-[var(--text-muted)] absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="email"
-                    required
-                    placeholder="name@example.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 rounded-xl bg-white/5 border border-white/10 text-xs text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-primary)]"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="text-[11px] font-semibold uppercase text-[var(--text-muted)] mb-1 block">
-                  Password
-                </label>
-                <div className="relative">
-                  <Lock className="w-4 h-4 text-[var(--text-muted)] absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="password"
-                    required
-                    placeholder="••••••••"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 rounded-xl bg-white/5 border border-white/10 text-xs text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-primary)]"
-                  />
-                </div>
-              </div>
-
-              {error && (
-                <div className="p-2.5 rounded-xl bg-red-500/20 border border-red-500/30 text-red-300 text-xs flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0" />
-                  <span>{error}</span>
-                </div>
-              )}
-
-              {successMsg && (
-                <div className="p-2.5 rounded-xl bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2">
-                  <Check className="w-4 h-4 shrink-0" />
-                  <span>{successMsg}</span>
-                </div>
-              )}
-
-              <button
-                type="submit"
+                onClick={() => handleProviderLogin('Facebook', () => firebaseService.signInWithFacebook())}
                 disabled={loading}
-                className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-[var(--accent-primary)] to-[var(--accent-secondary)] hover:opacity-95 text-black font-bold text-xs shadow-lg shadow-black/30 transition-all flex items-center justify-center gap-2 cursor-pointer mt-2"
+                className="py-2.5 px-3 rounded-xl bg-[#1877F2] hover:bg-[#166fe5] text-white font-semibold text-xs flex items-center justify-start gap-2 border border-white/10 transition-all cursor-pointer"
+                title="Sign in with Facebook"
               >
-                {loading ? (
-                  <>
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>Processing...</span>
-                  </>
-                ) : (
-                  <>
-                    <LogIn className="w-3.5 h-3.5" />
-                    <span>{mode === 'signin' ? 'Sign In' : 'Create Account'}</span>
-                  </>
-                )}
+                <svg className="w-3.5 h-3.5 fill-current shrink-0" viewBox="0 0 24 24">
+                  <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
+                </svg>
+                <span className="truncate">Facebook</span>
               </button>
-            </form>
+
+              {/* GitHub */}
+              <button
+                onClick={() => handleProviderLogin('GitHub', () => firebaseService.signInWithGithub())}
+                disabled={loading}
+                className="py-2.5 px-3 rounded-xl bg-[#24292e] hover:bg-[#2f363d] text-white font-semibold text-xs flex items-center justify-start gap-2 border border-white/10 transition-all cursor-pointer"
+                title="Sign in with GitHub"
+              >
+                <svg className="w-3.5 h-3.5 fill-current shrink-0" viewBox="0 0 24 24">
+                  <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
+                </svg>
+                <span className="truncate">GitHub</span>
+              </button>
+
+              {/* Microsoft */}
+              <button
+                onClick={() => handleProviderLogin('Microsoft', () => firebaseService.signInWithMicrosoft())}
+                disabled={loading}
+                className="py-2.5 px-3 rounded-xl bg-[#2f2f2f] hover:bg-[#3d3d3d] text-white font-semibold text-xs flex items-center justify-start gap-2 border border-white/10 transition-all cursor-pointer"
+                title="Sign in with Microsoft"
+              >
+                <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 23 23">
+                  <path fill="#f35325" d="M1 1h10v10H1z"/>
+                  <path fill="#81bc06" d="M12 1h10v10H12z"/>
+                  <path fill="#05a6f0" d="M1 12h10v10H1z"/>
+                  <path fill="#ffba08" d="M12 12h10v10H12z"/>
+                </svg>
+                <span className="truncate">Microsoft</span>
+              </button>
+
+              {/* LinkedIn */}
+              <button
+                onClick={() => handleProviderLogin('LinkedIn', () => firebaseService.signInWithLinkedIn())}
+                disabled={loading}
+                className="py-2.5 px-3 rounded-xl bg-[#0A66C2] hover:bg-[#084e96] text-white font-semibold text-xs flex items-center justify-start gap-2 border border-white/10 transition-all cursor-pointer"
+                title="Sign in with LinkedIn"
+              >
+                <svg className="w-3.5 h-3.5 fill-current shrink-0" viewBox="0 0 24 24">
+                  <path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/>
+                </svg>
+                <span className="truncate">LinkedIn</span>
+              </button>
+
+              {/* Spotify */}
+              <button
+                onClick={() => handleProviderLogin('Spotify', () => firebaseService.signInWithSpotify())}
+                disabled={loading}
+                className="py-2.5 px-3 rounded-xl bg-[#1DB954] hover:bg-[#1aa34a] text-black font-bold text-xs flex items-center justify-start gap-2 transition-all cursor-pointer"
+                title="Sign in with Spotify"
+              >
+                <svg className="w-3.5 h-3.5 fill-current shrink-0" viewBox="0 0 24 24">
+                  <path d="M12 0C5.376 0 0 5.376 0 12s5.376 12 12 12 12-5.376 12-12S18.624 0 12 0zm5.521 17.341c-.219.359-.693.475-1.053.256-2.887-1.763-6.521-2.163-10.801-1.183-.41.094-.813-.162-.906-.572-.094-.41.162-.813.572-.906 4.686-1.071 8.685-.615 11.932 1.362.359.219.475.693.256 1.043zm1.476-3.278c-.276.449-.868.591-1.317.316-3.302-2.029-8.337-2.618-12.245-1.431-.502.152-1.037-.132-1.189-.634-.152-.502.132-1.037.634-1.189 4.464-1.355 10.015-.705 13.799 1.621.449.276.592.868.318 1.317zm.126-3.414c-3.958-2.351-10.485-2.568-14.269-1.42-.607.184-1.248-.168-1.432-.775-.184-.607.168-1.248.775-1.432 4.341-1.317 11.537-1.062 16.084 1.637.546.324.726 1.033.402 1.579-.324.545-1.033.726-1.56.401z"/>
+                </svg>
+                <span className="truncate">Spotify</span>
+              </button>
+
+              {/* Discord */}
+              <button
+                onClick={() => handleProviderLogin('Discord', () => firebaseService.signInWithDiscord())}
+                disabled={loading}
+                className="py-2.5 px-3 rounded-xl bg-[#5865F2] hover:bg-[#4752c4] text-white font-semibold text-xs flex items-center justify-start gap-2 border border-white/10 transition-all cursor-pointer"
+                title="Sign in with Discord"
+              >
+                <svg className="w-3.5 h-3.5 fill-current shrink-0" viewBox="0 0 24 24">
+                  <path d="M20.317 4.37a19.791 19.791 0 00-4.885-1.515.074.074 0 00-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 00-5.487 0 12.64 12.64 0 00-.617-1.25.077.077 0 00-.079-.037A19.736 19.736 0 003.677 4.37a.07.07 0 00-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 00.031.057 19.9 19.9 0 005.993 3.03.078.078 0 00.084-.028c.462-.63.874-1.295 1.226-1.994.021-.041.001-.09-.041-.106a13.107 13.107 0 01-1.872-.892.077.077 0 01-.008-.128 10.2 10.2 0 00.372-.292.074.074 0 01.077-.01c3.928 1.793 8.18 1.793 12.061 0a.074.074 0 01.078.01c.12.098.246.198.373.292a.077.077 0 01-.006.127 12.299 12.299 0 01-1.873.892.077.077 0 00-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 00.084.028 19.839 19.839 0 006.002-3.03.077.077 0 00.032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 00-.031-.028zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/>
+                </svg>
+                <span className="truncate">Discord</span>
+              </button>
+
+              {/* Twitch */}
+              <button
+                onClick={() => handleProviderLogin('Twitch', () => firebaseService.signInWithTwitch())}
+                disabled={loading}
+                className="py-2.5 px-3 rounded-xl bg-[#9146FF] hover:bg-[#7d26ff] text-white font-semibold text-xs flex items-center justify-start gap-2 border border-white/10 transition-all cursor-pointer"
+                title="Sign in with Twitch"
+              >
+                <svg className="w-3.5 h-3.5 fill-current shrink-0" viewBox="0 0 24 24">
+                  <path d="M11.571 1.429L1.429 4.286v14.286h4.286v4.286l4.286-4.286h3.571L22.571 9.714V1.429H11.571zm9.286 7.143l-3.571 3.571h-3.571l-2.857 2.857v-2.857H7.143V2.857h13.714v5.715zM17.857 5.714h-2.143v5.714h2.143V5.714zm-5.714 0h-2.143v5.714h2.143V5.714z"/>
+                </svg>
+                <span className="truncate">Twitch</span>
+              </button>
+
+              {/* Yahoo */}
+              <button
+                onClick={() => handleProviderLogin('Yahoo', () => firebaseService.signInWithYahoo())}
+                disabled={loading}
+                className="py-2.5 px-3 rounded-xl bg-[#6001d2] hover:bg-[#5000b5] text-white font-semibold text-xs flex items-center justify-start gap-2 border border-white/10 transition-all cursor-pointer"
+                title="Sign in with Yahoo"
+              >
+                <svg className="w-3.5 h-3.5 fill-current shrink-0" viewBox="0 0 24 24">
+                  <path d="M12 24c6.627 0 12-5.373 12-12S18.627 0 12 0 0 5.373 0 12s5.373 12 12 12zm2.933-17.6l2.133 4.2h-2.8l-1.067-2.333L12.133 10.6H9.333l2.134-4.2H8.667L5.6 13.8h2.8l.933-2.1h5.334l.933 2.1h2.8L14.933 6.4z"/>
+                </svg>
+                <span className="truncate">Yahoo</span>
+              </button>
+
+              {/* Reddit */}
+              <button
+                onClick={() => handleProviderLogin('Reddit', () => firebaseService.signInWithReddit())}
+                disabled={loading}
+                className="py-2.5 px-3 rounded-xl bg-[#FF4500] hover:bg-[#e03d00] text-white font-semibold text-xs flex items-center justify-start gap-2 border border-white/10 transition-all cursor-pointer"
+                title="Sign in with Reddit"
+              >
+                <svg className="w-3.5 h-3.5 fill-current shrink-0" viewBox="0 0 24 24">
+                  <path d="M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm5.01 4.744c.688 0 1.25.561 1.25 1.249a1.25 1.25 0 0 1-2.498.056l-2.597-.547-.8 3.747c1.824.07 3.48.632 4.674 1.488.308-.309.73-.491 1.207-.491.968 0 1.754.786 1.754 1.754 0 .716-.435 1.333-1.056 1.601a5.352 5.352 0 0 1 .052.716c0 3.6-4.225 6.522-9.438 6.522-5.213 0-9.438-2.922-9.438-6.522 0-.236.02-.472.052-.716a1.734 1.734 0 0 1-1.056-1.601c0-.968.786-1.754 1.754-1.754.477 0 .899.182 1.207.491 1.194-.856 2.85-1.418 4.674-1.488l.966-4.526a.375.375 0 0 1 .442-.29l3.181.67c.182-.294.516-.492.898-.492z"/>
+                </svg>
+                <span className="truncate">Reddit</span>
+              </button>
+            </div>
+
+            {error && (
+              <div className="mt-3 p-2.5 rounded-xl bg-red-500/20 border border-red-500/30 text-red-300 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
+
+            {successMsg && (
+              <div className="mt-3 p-2.5 rounded-xl bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2">
+                <Check className="w-4 h-4 shrink-0" />
+                <span>{successMsg}</span>
+              </div>
+            )}
           </div>
         )}
         </div>

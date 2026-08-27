@@ -221,7 +221,9 @@ class VoiceControlService {
   }
 
   private processCommand(rawText: string) {
-    const text = rawText.toLowerCase().trim();
+    let text = rawText.toLowerCase().trim();
+    // Strip "hey neotune", "hey neo tune", "hey neotunes", or "neotune" prefix with any trailing spaces/punctuation
+    text = text.replace(/^(?:hey\s+)?neo\s*tune[s]?[\s,.-]*/i, '').trim();
 
     // 1. Play / Resume Commands
     if (

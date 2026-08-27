@@ -146,6 +146,11 @@ export const VisualizerCanvas: React.FC<VisualizerCanvasProps> = ({
     const render = (time: number) => {
       animationFrameRef.current = requestAnimationFrame(render);
 
+      // Skip rendering if document is hidden to optimize CPU / Battery
+      if (typeof document !== 'undefined' && document.hidden) {
+        return;
+      }
+
       const isBatterySaver = audioEngine.isBatterySavingActive();
       // In Battery Saver mode, lower refresh rate to 18-20 FPS (~55ms interval) to save CPU/GPU power
       const targetFpsInterval = isBatterySaver ? 55 : 1000 / 60;

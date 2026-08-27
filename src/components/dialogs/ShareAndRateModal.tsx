@@ -3,7 +3,7 @@ import { X, Star, Share2, Copy, Check, Heart, ExternalLink, Coffee, MessageSquar
 import QRCode from 'qrcode';
 import { storageService } from '../../services/storageService';
 import { firebaseService } from '../../services/firebaseService';
-import { RadioStation } from '../../types';
+import { RadioStation, ShareHistoryEntry } from '../../types';
 import { triggerHaptic } from '../../utils/haptics';
 
 interface ShareAndRateModalProps {
@@ -25,6 +25,21 @@ export const ShareAndRateModal: React.FC<ShareAndRateModalProps> = ({
   const [copiedPaypal, setCopiedPaypal] = useState(false);
   const [ratedDone, setRatedDone] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
+  const [shareHistory, setShareHistory] = useState<ShareHistoryEntry[]>(() => storageService.getShareHistory());
+
+  useEffect(() => {
+    if (isOpen) {
+      setShareHistory(storageService.getShareHistory());
+    }
+  }, [isOpen]);
+
+  const recordShare = () => {
+    if (station) {
+      const updated = storageService.addShareHistoryEntry(station);
+      setShareHistory(updated);
+      firebaseService.trackStationShare(station);
+    }
+  };
 
   const deepLinkUrl = station
     ? `${window.location.origin}${window.location.pathname}?stationId=${encodeURIComponent(station.id)}`
@@ -55,9 +70,7 @@ export const ShareAndRateModal: React.FC<ShareAndRateModalProps> = ({
   const handleDownloadQr = () => {
     if (!qrDataUrl) return;
     triggerHaptic('light');
-    if (station) {
-      firebaseService.trackStationShare(station);
-    }
+    recordShare();
     const a = document.createElement('a');
     a.href = qrDataUrl;
     a.download = `${station ? station.name.replace(/[^a-z0-9]/gi, '_') : 'neotune'}_qr.png`;
@@ -80,9 +93,7 @@ export const ShareAndRateModal: React.FC<ShareAndRateModalProps> = ({
     try {
       navigator.clipboard.writeText(streamUrlToShare);
       setCopied(true);
-      if (station) {
-        firebaseService.trackStationShare(station);
-      }
+      recordShare();
       setTimeout(() => setCopied(false), 2000);
     } catch {}
   };
@@ -101,9 +112,7 @@ export const ShareAndRateModal: React.FC<ShareAndRateModalProps> = ({
   };
 
   const handleNativeShare = async () => {
-    if (station) {
-      firebaseService.trackStationShare(station);
-    }
+    recordShare();
     if (navigator.share) {
       try {
         await navigator.share({
@@ -265,7 +274,7 @@ export const ShareAndRateModal: React.FC<ShareAndRateModalProps> = ({
                 href={`https://api.whatsapp.com/send?text=${encodeURIComponent(`Listen to ${station ? station.name : 'NeoTune Radio'} live stream: ${streamUrlToShare}`)}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                onClick={() => station && firebaseService.trackStationShare(station)}
+                onClick={() => recordShare()}
                 className="py-2 px-2 rounded-xl bg-[#25D366]/20 hover:bg-[#25D366]/30 text-[#25D366] border border-[#25D366]/30 font-semibold text-[11px] flex items-center justify-center gap-1.5 transition-all"
               >
                 <MessageSquare className="w-3.5 h-3.5" />
@@ -275,7 +284,7 @@ export const ShareAndRateModal: React.FC<ShareAndRateModalProps> = ({
                 href={`https://t.me/share/url?url=${encodeURIComponent(streamUrlToShare)}&text=${encodeURIComponent(`Listen to ${station ? station.name : 'NeoTune Radio'}`)}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                onClick={() => station && firebaseService.trackStationShare(station)}
+                onClick={() => recordShare()}
                 className="py-2 px-2 rounded-xl bg-[#229ED9]/20 hover:bg-[#229ED9]/30 text-[#229ED9] border border-[#229ED9]/30 font-semibold text-[11px] flex items-center justify-center gap-1.5 transition-all"
               >
                 <Share2 className="w-3.5 h-3.5" />
@@ -283,12 +292,81 @@ export const ShareAndRateModal: React.FC<ShareAndRateModalProps> = ({
               </a>
               <a
                 href={`mailto:?subject=${encodeURIComponent(shareTitle)}&body=${encodeURIComponent(`Check out ${station ? station.name : 'NeoTune Radio'} live stream:\n${streamUrlToShare}`)}`}
-                onClick={() => station && firebaseService.trackStationShare(station)}
+                onClick={() => recordShare()}
                 className="py-2 px-2 rounded-xl bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/30 font-semibold text-[11px] flex items-center justify-center gap-1.5 transition-all"
               >
                 <ExternalLink className="w-3.5 h-3.5" />
                 <span>Email</span>
               </a>
+            </div>
+
+            {/* Share History Section (Last 5 Shared Stations stored in localStorage) */}
+            <div className="pt-3 border-t border-white/10 space-y-2">
+              <div className="flex items-center justify-between text-xs font-bold text-[var(--text-primary)]">
+                <span className="flex items-center gap-1.5 text-purple-300">
+                  <Share2 className="w-3.5 h-3.5 text-purple-400" />
+                  <span>Recent Shares (Last 5)</span>
+                </span>
+                <span className="text-[10px] text-[var(--text-muted)] font-mono">{shareHistory.length}/5 Saved</span>
+              </div>
+
+              {shareHistory.length === 0 ? (
+                <div className="p-3 rounded-xl bg-white/5 border border-white/5 text-[11px] text-[var(--text-muted)] text-center">
+                  No share history yet. Share a station to see your recent shares here!
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  {shareHistory.map((entry) => (
+                    <div
+                      key={entry.id}
+                      className="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 transition-all flex items-center justify-between gap-2 text-xs"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <img
+                          src={entry.imageUrl || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=100&q=80'}
+                          alt={entry.stationName}
+                          className="w-8 h-8 rounded-lg object-cover bg-black/40 border border-white/10 shrink-0"
+                          onError={(e) => {
+                            (e.target as HTMLElement).style.display = 'none';
+                          }}
+                        />
+                        <div className="min-w-0">
+                          <div className="font-bold text-white truncate">{entry.stationName}</div>
+                          <div className="text-[10px] text-[var(--text-muted)] truncate">
+                            {new Date(entry.sharedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          onClick={() => {
+                            triggerHaptic('medium');
+                            if (navigator.share) {
+                              navigator.share({
+                                title: entry.stationName,
+                                text: `Listen to ${entry.stationName} on NeoTune Radio!`,
+                                url: entry.stationUrl
+                              }).catch(() => {
+                                navigator.clipboard.writeText(entry.stationUrl);
+                              });
+                            } else {
+                              navigator.clipboard.writeText(entry.stationUrl);
+                            }
+                            setCopied(true);
+                            setTimeout(() => setCopied(false), 2000);
+                          }}
+                          className="px-2.5 py-1.5 rounded-lg bg-purple-500/20 hover:bg-purple-500/40 text-purple-200 border border-purple-500/30 hover:border-purple-400 text-[10px] font-bold shrink-0 flex items-center gap-1 cursor-pointer transition-all active:scale-95"
+                          title="One-Tap Re-Share Station"
+                        >
+                          <Share2 className="w-3 h-3 text-purple-300" />
+                          <span>Re-Share</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}

@@ -33,7 +33,12 @@ export const AlarmModal: React.FC<AlarmModalProps> = ({ isOpen, onClose, station
       weatherCity: saved.weatherCity || '',
       temperatureUnit: saved.temperatureUnit || 'celsius',
       weatherRampEnabled: saved.weatherRampEnabled ?? false,
-      weatherRampCondition: saved.weatherRampCondition || 'any'
+      weatherRampCondition: saved.weatherRampCondition || 'any',
+      gentleWakeUpEnabled: saved.gentleWakeUpEnabled ?? false,
+      gentleWakeUpWindowMins: saved.gentleWakeUpWindowMins ?? 3,
+      minWakeVolume: saved.minWakeVolume ?? 0.10,
+      maxCeilingVolume: saved.maxCeilingVolume ?? (saved.volume ?? 0.85),
+      backupSound: saved.backupSound || 'gentle_bells',
     };
   });
   const [savedSuccess, setSavedSuccess] = useState(false);
@@ -44,6 +49,38 @@ export const AlarmModal: React.FC<AlarmModalProps> = ({ isOpen, onClose, station
 
   const [isTestingSpeech, setIsTestingSpeech] = useState(false);
   const [weatherPreviewText, setWeatherPreviewText] = useState<string>('');
+  const [testingBackupSound, setTestingBackupSound] = useState<string | null>(null);
+  const [customSound, setCustomSound] = useState<{ url: string; name: string } | null>(() => storageService.getCustomWakeSound());
+  const customFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const handleCustomSoundUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 15 * 1024 * 1024) {
+      alert('Audio file size must be less than 15MB');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const url = reader.result as string;
+      const soundObj = { url, name: file.name };
+      setCustomSound(soundObj);
+      storageService.setCustomWakeSound(soundObj);
+      setConfig(prev => ({ ...prev, backupSound: 'custom' as any, customWakeSoundUrl: url }));
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleToggleTestBackupSound = (soundKey: string) => {
+    if (testingBackupSound === soundKey) {
+      audioEngine.stopBackupSynthSound();
+      setTestingBackupSound(null);
+    } else {
+      audioEngine.stopBackupSynthSound();
+      audioEngine.playBackupSynthSound(soundKey, config.maxCeilingVolume || 0.85);
+      setTestingBackupSound(soundKey);
+    }
+  };
 
   const stopPreviewAndRestoreVolume = () => {
     audioEngine.stopSystemChimeLoop();
@@ -55,6 +92,82 @@ export const AlarmModal: React.FC<AlarmModalProps> = ({ isOpen, onClose, station
       const savedVol = storageService.getVolume();
       audioEngine.setVolume(savedVol);
     }
+  };
+
+  // AI Smart Wake-up State
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiRecommendation, setAiRecommendation] = useState<{
+    recommendedStationId: string;
+    recommendedStationName: string;
+    recommendedGenre: string;
+    recommendedStreamUrl?: string;
+    recommendedImageUrl?: string;
+    matchScore: number;
+    aiReasoning: string;
+    suggestedGentleWindowMins: number;
+    suggestedMinWakeVolume: number;
+    suggestedMaxCeilingVolume: number;
+    routineTag: string;
+  } | null>(null);
+
+  const handleGenerateAiRecommendation = async () => {
+    setAiLoading(true);
+    try {
+      const recents = storageService.getRecents();
+      const favorites = storageService.getFavorites();
+
+      const res = await fetch('/api/ai/smart-wakeup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          alarmHour: config.hour,
+          alarmMinute: config.minute,
+          recentStations: recents.slice(0, 5),
+          favorites: favorites.slice(0, 5),
+          availableStations: stations.slice(0, 10)
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setAiRecommendation(data);
+      }
+    } catch (err) {
+      console.warn('AI smart wakeup error:', err);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const handleApplyAiRecommendation = () => {
+    if (!aiRecommendation) return;
+    const targetStation = stations.find(s => s.id === aiRecommendation.recommendedStationId) || {
+      id: aiRecommendation.recommendedStationId,
+      name: aiRecommendation.recommendedStationName,
+      genre: aiRecommendation.recommendedGenre,
+      streamUrl: aiRecommendation.recommendedStreamUrl || '',
+      imageUrl: aiRecommendation.recommendedImageUrl || '',
+      bitrate: '128 kbps',
+      codec: 'AAC',
+      isFavorite: false
+    };
+
+    setConfig(prev => ({
+      ...prev,
+      stationId: targetStation.id,
+      stationName: targetStation.name,
+      stationUrl: targetStation.streamUrl,
+      stationGenre: targetStation.genre,
+      stationImageUrl: targetStation.imageUrl,
+      gentleWakeUpEnabled: true,
+      gentleWakeUpWindowMins: aiRecommendation.suggestedGentleWindowMins || 4,
+      minWakeVolume: aiRecommendation.suggestedMinWakeVolume || 0.12,
+      maxCeilingVolume: aiRecommendation.suggestedMaxCeilingVolume || 0.85,
+      label: aiRecommendation.routineTag || "AI Morning Routine"
+    }));
+
+    setSavedSuccess(true);
+    setTimeout(() => setSavedSuccess(false), 2000);
   };
 
   // Voice Memo Mic Recording State
@@ -164,7 +277,12 @@ export const AlarmModal: React.FC<AlarmModalProps> = ({ isOpen, onClose, station
         weatherCity: saved.weatherCity || '',
         temperatureUnit: saved.temperatureUnit || 'celsius',
         weatherRampEnabled: saved.weatherRampEnabled ?? false,
-        weatherRampCondition: saved.weatherRampCondition || 'any'
+        weatherRampCondition: saved.weatherRampCondition || 'any',
+        gentleWakeUpEnabled: saved.gentleWakeUpEnabled ?? false,
+        gentleWakeUpWindowMins: saved.gentleWakeUpWindowMins ?? 3,
+        minWakeVolume: saved.minWakeVolume ?? 0.10,
+        maxCeilingVolume: saved.maxCeilingVolume ?? (saved.volume ?? 0.85),
+        backupSound: saved.backupSound || 'gentle_bells',
       });
 
       firebaseService.getCloudAlarm().then((cloudAlarm) => {
@@ -178,7 +296,12 @@ export const AlarmModal: React.FC<AlarmModalProps> = ({ isOpen, onClose, station
             weatherCity: cloudAlarm.weatherCity || '',
             temperatureUnit: cloudAlarm.temperatureUnit || 'celsius',
             weatherRampEnabled: cloudAlarm.weatherRampEnabled ?? false,
-            weatherRampCondition: cloudAlarm.weatherRampCondition || 'any'
+            weatherRampCondition: cloudAlarm.weatherRampCondition || 'any',
+            gentleWakeUpEnabled: cloudAlarm.gentleWakeUpEnabled ?? false,
+            gentleWakeUpWindowMins: cloudAlarm.gentleWakeUpWindowMins ?? 3,
+            minWakeVolume: cloudAlarm.minWakeVolume ?? 0.10,
+            maxCeilingVolume: cloudAlarm.maxCeilingVolume ?? (cloudAlarm.volume ?? 0.85),
+            backupSound: cloudAlarm.backupSound || 'gentle_bells',
           });
         }
       });
@@ -471,6 +594,89 @@ export const AlarmModal: React.FC<AlarmModalProps> = ({ isOpen, onClose, station
           </div>
         </div>
 
+        {/* AI Smart Wake-up Assistant Section */}
+        <div className="mt-5 p-4 rounded-2xl bg-gradient-to-br from-purple-900/30 via-indigo-900/20 to-black/40 border border-purple-500/30 shadow-lg relative overflow-hidden">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-purple-500/20 text-purple-300">
+                <Sparkles className="w-4 h-4 animate-pulse" />
+              </div>
+              <h4 className="text-xs font-bold text-purple-200 uppercase tracking-wider">
+                AI Smart Wake-Up Assistant
+              </h4>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleGenerateAiRecommendation}
+              disabled={aiLoading}
+              className="px-3 py-1.5 rounded-xl bg-purple-500/20 hover:bg-purple-500/30 text-purple-200 border border-purple-500/40 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm active:scale-95"
+            >
+              {aiLoading ? (
+                <>
+                  <Sparkles className="w-3.5 h-3.5 animate-spin text-purple-300" />
+                  <span>Analyzing...</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-3.5 h-3.5 text-purple-300" />
+                  <span>{aiRecommendation ? 'Re-Analyze AI' : 'Get AI Recommendation'}</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          <p className="text-xs text-[var(--text-muted)] leading-relaxed mb-3">
+            Gemini AI analyzes your time-of-day listening history to curate the perfect morning stream and volume ramp profile.
+          </p>
+
+          {aiRecommendation && (
+            <div className="p-3 rounded-xl bg-black/50 border border-purple-500/30 space-y-2.5 animate-fadeIn">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 min-w-0">
+                  {aiRecommendation.recommendedImageUrl ? (
+                    <img
+                      src={aiRecommendation.recommendedImageUrl}
+                      alt={aiRecommendation.recommendedStationName}
+                      className="w-10 h-10 rounded-lg object-cover shrink-0 border border-white/10"
+                    />
+                  ) : (
+                    <div className="w-10 h-10 rounded-lg bg-purple-500/20 flex items-center justify-center shrink-0 text-purple-300">
+                      <Radio className="w-5 h-5" />
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <div className="text-xs font-bold text-white truncate">{aiRecommendation.recommendedStationName}</div>
+                    <div className="text-[10px] text-purple-300 font-medium truncate">{aiRecommendation.recommendedGenre} • {aiRecommendation.routineTag}</div>
+                  </div>
+                </div>
+
+                <div className="shrink-0 px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-mono text-[10px] font-bold">
+                  {aiRecommendation.matchScore}% Match
+                </div>
+              </div>
+
+              <div className="p-2.5 rounded-lg bg-white/5 text-[11px] text-purple-100 italic border-l-2 border-purple-400 leading-snug">
+                "{aiRecommendation.aiReasoning}"
+              </div>
+
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-[10px] text-[var(--text-muted)] font-mono">
+                  Ramp: {aiRecommendation.suggestedGentleWindowMins}m window • Max Vol: {Math.round(aiRecommendation.suggestedMaxCeilingVolume * 100)}%
+                </span>
+                <button
+                  type="button"
+                  onClick={handleApplyAiRecommendation}
+                  className="px-3 py-1 rounded-lg bg-emerald-500 text-black font-bold text-xs hover:bg-emerald-400 transition-colors cursor-pointer shadow-md flex items-center gap-1"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Apply AI Smart Settings</span>
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Station Selector & Preview */}
         <div className="mt-5 space-y-2.5">
           <label className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)] block">
@@ -704,6 +910,251 @@ export const AlarmModal: React.FC<AlarmModalProps> = ({ isOpen, onClose, station
                   Otherwise, the alarm starts immediately at target volume without a slow increase. Uses the location set above.
                 </span>
               </div>
+            </div>
+          )}
+        </div>
+
+        {/* Gentle Wake-Up Volume Ramp Window (1-5 min) */}
+        <div className="mt-5 p-4 rounded-2xl bg-gradient-to-r from-emerald-500/10 via-teal-500/5 to-cyan-500/10 border border-emerald-500/20 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                <SunMoon className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="text-xs font-bold text-[var(--text-primary)] flex items-center gap-2">
+                  <span>Gentle Wake-Up Audio Ramp</span>
+                  <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 uppercase">
+                    1-5 min Window
+                  </span>
+                </div>
+                <div className="text-[11px] text-[var(--text-muted)]">
+                  Slowly increases audio volume from 0% to set volume over a 1-5 min window before alarm time
+                </div>
+              </div>
+            </div>
+
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={config.gentleWakeUpEnabled || false}
+                onChange={(e) => setConfig({ ...config, gentleWakeUpEnabled: e.target.checked })}
+                className="sr-only peer"
+              />
+              <div className="w-10 h-5 bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-400"></div>
+            </label>
+          </div>
+
+          {config.gentleWakeUpEnabled && (
+            <div className="pt-2.5 border-t border-white/5 space-y-2.5 animate-fadeIn">
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center justify-between mb-1.5">
+                  <span>Volume Ramp Window Duration:</span>
+                  <span className="text-emerald-400 font-bold">{config.gentleWakeUpWindowMins || 3} Minutes Window</span>
+                </label>
+                <div className="grid grid-cols-5 gap-1.5 bg-black/40 p-1.5 rounded-xl border border-white/5">
+                  {[1, 2, 3, 4, 5].map((mins) => (
+                    <button
+                      key={`gentle_window_${mins}`}
+                      type="button"
+                      onClick={() => setConfig({ ...config, gentleWakeUpWindowMins: mins })}
+                      className={`py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                        (config.gentleWakeUpWindowMins || 3) === mins
+                          ? 'bg-emerald-500 text-black shadow-sm'
+                          : 'text-slate-400 hover:text-white hover:bg-white/5'
+                      }`}
+                    >
+                      {mins} min
+                    </button>
+                  ))}
+                </div>
+                <span className="text-[9px] text-[var(--text-muted)] block mt-1.5">
+                  Volume begins ramping up at {config.gentleWakeUpWindowMins || 3} min before {config.hour < 10 ? `0${config.hour}` : config.hour}:{config.minute < 10 ? `0${config.minute}` : config.minute}, smoothly reaching {Math.round((config.maxCeilingVolume || config.volume || 0.85) * 100)}% target volume.
+                </span>
+              </div>
+
+              {/* Min Wake Volume & Max Ceiling Volume Sliders */}
+              <div className="pt-2 border-t border-white/5 space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  {/* Min Wake Volume */}
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-slate-300 uppercase tracking-wider">Min Wake Vol</span>
+                      <span className="text-[10px] font-mono text-emerald-400 font-bold">{Math.round((config.minWakeVolume ?? 0.10) * 100)}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.05"
+                      max="0.40"
+                      step="0.05"
+                      value={config.minWakeVolume ?? 0.10}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value);
+                        setConfig({
+                          ...config,
+                          minWakeVolume: val,
+                          maxCeilingVolume: Math.max(val, config.maxCeilingVolume ?? 0.85)
+                        });
+                      }}
+                      className="w-full accent-emerald-400 h-1.5 bg-black/40 rounded-lg cursor-pointer"
+                    />
+                    <span className="text-[9px] text-[var(--text-muted)] block">Initial start volume</span>
+                  </div>
+
+                  {/* Max Ceiling Volume */}
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-slate-300 uppercase tracking-wider">Max Ceiling Vol</span>
+                      <span className="text-[10px] font-mono text-emerald-400 font-bold">{Math.round((config.maxCeilingVolume ?? 0.85) * 100)}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.40"
+                      max="1.00"
+                      step="0.05"
+                      value={config.maxCeilingVolume ?? 0.85}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value);
+                        setConfig({
+                          ...config,
+                          maxCeilingVolume: val,
+                          minWakeVolume: Math.min(val, config.minWakeVolume ?? 0.10)
+                        });
+                      }}
+                      className="w-full accent-emerald-400 h-1.5 bg-black/40 rounded-lg cursor-pointer"
+                    />
+                    <span className="text-[9px] text-[var(--text-muted)] block">Maximum ramp volume</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Local Backup Sound & Alternative Wake Tone Failover Section */}
+        <div className="mt-5 p-4 rounded-2xl bg-gradient-to-r from-blue-500/10 via-indigo-500/5 to-purple-500/10 border border-blue-500/20 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 rounded-xl bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                <Volume2 className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="text-xs font-bold text-[var(--text-primary)] flex items-center gap-2">
+                  <span>Alternative Wake Tone & Failover</span>
+                  <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30 uppercase">
+                    5s Stream Timeout Fallback
+                  </span>
+                </div>
+                <div className="text-[11px] text-[var(--text-muted)]">
+                  Plays a high-quality local ambient soundscape or chime if live radio stream fails to connect within 5 seconds.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between p-2.5 rounded-xl bg-white/5 border border-white/10 text-xs font-semibold">
+            <span className="text-slate-200">Enable Alternative Wake Tone Fallback</span>
+            <button
+              type="button"
+              onClick={() => setConfig({ ...config, useAlternativeWakeTone: !config.useAlternativeWakeTone })}
+              className={`w-10 h-5 rounded-full p-0.5 transition-colors cursor-pointer ${
+                config.useAlternativeWakeTone !== false ? 'bg-blue-500' : 'bg-white/20'
+              }`}
+            >
+              <div
+                className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${
+                  config.useAlternativeWakeTone !== false ? 'translate-x-5' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-1">
+            {[
+              { id: 'gentle_bells', label: 'Gentle Bells', icon: '🔔' },
+              { id: 'chime', label: 'Classic Chime', icon: '🎵' },
+              { id: 'radar_pulse', label: 'Radar Pulse', icon: '⚡' },
+              { id: 'nature_birds', label: 'Nature Birds', icon: '🐤' },
+              { id: 'white_noise', label: 'White Noise', icon: '🌊' },
+              { id: 'custom', label: customSound ? customSound.name : 'Custom Audio File', icon: '📂' },
+              { id: 'none', label: 'None', icon: '🚫' }
+            ].map((sound) => {
+              const isSelected = (config.backupSound || 'gentle_bells') === sound.id;
+              const isTesting = testingBackupSound === sound.id;
+              return (
+                <div
+                  key={sound.id}
+                  className={`p-2.5 rounded-xl border transition-all flex flex-col justify-between gap-1.5 ${
+                    isSelected
+                      ? 'bg-blue-500/20 border-blue-500 text-white font-bold'
+                      : 'bg-white/5 border-white/10 hover:border-white/20 text-slate-300'
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (sound.id === 'custom' && !customSound) {
+                        customFileInputRef.current?.click();
+                      } else {
+                        setConfig({ ...config, backupSound: sound.id as any });
+                      }
+                    }}
+                    className="w-full text-left flex items-center gap-1.5 cursor-pointer min-h-[32px]"
+                  >
+                    <span className="text-sm">{sound.icon}</span>
+                    <span className="text-xs font-semibold leading-tight truncate">{sound.label}</span>
+                  </button>
+
+                  {sound.id !== 'none' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (sound.id === 'custom' && !customSound) {
+                          customFileInputRef.current?.click();
+                        } else {
+                          handleToggleTestBackupSound(sound.id);
+                        }
+                      }}
+                      className={`w-full py-1 px-2 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                        isTesting
+                          ? 'bg-amber-500 text-black shadow-md animate-pulse'
+                          : 'bg-white/10 hover:bg-white/20 text-blue-200'
+                      }`}
+                    >
+                      {sound.id === 'custom' && !customSound
+                        ? 'Upload File'
+                        : isTesting
+                        ? 'Stop Test'
+                        : 'Test Sound'}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Hidden File Input for Custom Audio Selection */}
+          <input
+            ref={customFileInputRef}
+            type="file"
+            accept="audio/*"
+            onChange={handleCustomSoundUpload}
+            className="hidden"
+          />
+
+          {customSound && (
+            <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2 truncate">
+                <span className="text-blue-400 font-bold">🎵 Custom Fallback Sound:</span>
+                <span className="text-slate-200 font-mono font-semibold truncate">{customSound.name}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => customFileInputRef.current?.click()}
+                className="px-2.5 py-1 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 font-bold text-[10px] border border-blue-500/30 cursor-pointer shrink-0"
+              >
+                Change File
+              </button>
             </div>
           )}
         </div>

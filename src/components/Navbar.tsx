@@ -3,7 +3,7 @@ import {
   Radio, Mic, Heart, Settings, Plus, Sliders, Moon, Car, Tv, Palette, Shield, 
   Sparkles, Disc3, Download, Smartphone, Monitor, User, Cloud, CloudOff, 
   RefreshCw, CheckCircle2, Search, AlertTriangle, ChevronLeft, ChevronRight, Menu,
-  Globe, Check
+  Globe, Check, X
 } from 'lucide-react';
 import { AppView, ThemeType, UserProfile, SyncStatusInfo } from '../types';
 import { DevicePlatform } from '../hooks/usePWAInstall';
@@ -54,6 +54,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 }) => {
   const [showThemeMenu, setShowThemeMenu] = useState(false);
   const [showLangMenu, setShowLangMenu] = useState(false);
+  const [showMobileDrawer, setShowMobileDrawer] = useState(false);
   const [langFilter, setLangFilter] = useState('');
   const [syncStatus, setSyncStatus] = useState<SyncStatusInfo>(firebaseService.getSyncStatus());
   const [showSyncTooltip, setShowSyncTooltip] = useState(false);
@@ -570,12 +571,26 @@ export const Navbar: React.FC<NavbarProps> = ({
       <header className="md:hidden sticky top-0 z-30 w-full bg-[var(--surface-main)]/90 backdrop-blur-2xl border-b border-[var(--border-color)] shadow-lg shadow-black/20 pt-safe">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-2 sm:gap-4">
           
-          {/* Left Logo */}
-          <div 
-            onClick={() => onSelectView('radio')}
-            className="cursor-pointer select-none"
-          >
-            <NeoTuneLogo size={32} showText={true} />
+          {/* Left: Hamburger Menu Button & Logo */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                triggerHaptic('light');
+                setShowMobileDrawer(true);
+              }}
+              className="p-2 rounded-xl bg-white/5 border border-white/10 text-[var(--text-primary)] hover:bg-white/10 transition-colors cursor-pointer"
+              title="Open Navigation Drawer"
+              aria-label="Open Navigation Drawer"
+            >
+              <Menu className="w-5 h-5 text-[var(--accent-primary)]" />
+            </button>
+
+            <div 
+              onClick={() => onSelectView('radio')}
+              className="cursor-pointer select-none"
+            >
+              <NeoTuneLogo size={32} showText={true} />
+            </div>
           </div>
 
           {/* Right Action Widgets */}
@@ -748,13 +763,13 @@ export const Navbar: React.FC<NavbarProps> = ({
                 triggerHaptic('selection');
                 onSelectView(tab.id);
               }}
-              className={`flex-1 flex flex-col items-center justify-center py-1.5 px-1 rounded-xl transition-all cursor-pointer min-h-[48px] ${
+              className={`flex-1 flex flex-col items-center justify-center py-1.5 px-1 rounded-xl transition-all cursor-pointer min-h-[48px] active:scale-95 ${
                 isActive
-                  ? 'text-[var(--accent-primary)] font-black animate-pulse'
+                  ? 'text-[var(--accent-primary)] font-bold'
                   : 'text-[var(--text-muted)] hover:text-white'
               }`}
             >
-              <div className={`p-1 rounded-lg transition-all ${isActive ? 'bg-[var(--accent-primary)]/20 shadow-sm scale-110' : ''}`}>
+              <div className={`p-1 rounded-xl transition-all ${isActive ? 'bg-[var(--accent-primary)]/20 shadow-sm ring-1 ring-[var(--accent-primary)]/40 scale-105' : ''}`}>
                 <Icon className="w-5 h-5" />
               </div>
               <span className={`text-[10px] tracking-tight mt-0.5 ${isActive ? 'font-bold text-[var(--accent-primary)]' : 'font-medium'}`}>
@@ -764,6 +779,185 @@ export const Navbar: React.FC<NavbarProps> = ({
           );
         })}
       </nav>
+
+      {/* ----------------- MOBILE SLIDE-OUT PWA LEFT DRAWER ----------------- */}
+      {showMobileDrawer && (
+        <div className="md:hidden fixed inset-0 z-50 flex animate-fadeIn">
+          {/* Backdrop */}
+          <div 
+            className="fixed inset-0 bg-black/75 backdrop-blur-md transition-opacity" 
+            onClick={() => setShowMobileDrawer(false)} 
+          />
+
+          {/* Drawer Content */}
+          <div className="relative z-10 w-80 max-w-[85vw] h-full bg-[var(--surface-main)] border-r border-[var(--border-color)] p-4 flex flex-col justify-between shadow-2xl animate-slideRight overflow-y-auto">
+            <div className="space-y-5">
+              {/* Drawer Top Header: App Icon & Brand Logo */}
+              <div className="flex items-center justify-between pb-3 border-b border-[var(--border-color)]">
+                <div onClick={() => { onSelectView('radio'); setShowMobileDrawer(false); }} className="cursor-pointer">
+                  <NeoTuneLogo size={36} showText={true} />
+                </div>
+                <button
+                  onClick={() => setShowMobileDrawer(false)}
+                  className="p-1.5 rounded-xl text-[var(--text-muted)] hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                  title="Close Drawer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Quick Search */}
+              <button
+                onClick={() => {
+                  setShowMobileDrawer(false);
+                  onOpenSearch();
+                }}
+                className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-white/5 border border-white/10 text-xs font-semibold text-[var(--text-muted)] hover:text-white transition-all cursor-pointer text-left"
+              >
+                <div className="flex items-center gap-2">
+                  <Search className="w-4 h-4 text-[var(--accent-primary)]" />
+                  <span>Quick Search...</span>
+                </div>
+                <kbd className="px-1.5 py-0.5 bg-black/40 text-[9px] text-zinc-500 font-mono rounded border border-white/5">⌘K</kbd>
+              </button>
+
+              {/* Navigation Links */}
+              <div className="space-y-1">
+                <span className="px-1 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] block mb-1">
+                  Navigation
+                </span>
+                <nav className="space-y-1 flex flex-col">
+                  {NAV_TABS.map((tab) => {
+                    const Icon = tab.icon;
+                    const isActive = currentView === tab.id;
+                    return (
+                      <button
+                        key={`drawer_tab_${tab.id}`}
+                        onClick={() => {
+                          triggerHaptic('selection');
+                          onSelectView(tab.id);
+                          setShowMobileDrawer(false);
+                        }}
+                        className={`flex items-center gap-3.5 rounded-xl text-xs font-bold transition-all cursor-pointer h-11 px-3.5 w-full ${
+                          isActive
+                            ? 'bg-[var(--accent-primary)] text-black shadow-md shadow-[var(--accent-primary)]/20 font-black'
+                            : 'text-[var(--text-muted)] hover:text-white hover:bg-white/5'
+                        }`}
+                      >
+                        <Icon className="w-4.5 h-4.5 shrink-0" />
+                        <span>{tab.label}</span>
+                      </button>
+                    );
+                  })}
+                </nav>
+              </div>
+
+              {/* Display & Audio Tools */}
+              <div className="space-y-1.5 pt-3 border-t border-white/5">
+                <span className="px-1 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] block mb-1">
+                  Tools & Display Modes
+                </span>
+                
+                {/* Add Station */}
+                <button
+                  onClick={() => {
+                    setShowMobileDrawer(false);
+                    onOpenAddStation();
+                  }}
+                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold text-[var(--text-muted)] hover:text-white hover:bg-white/5 transition-all cursor-pointer"
+                >
+                  <Plus className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>Add Custom Station</span>
+                </button>
+
+                {/* Equalizer */}
+                <button
+                  onClick={() => {
+                    setShowMobileDrawer(false);
+                    onOpenEQ();
+                  }}
+                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold text-[var(--text-muted)] hover:text-white hover:bg-white/5 transition-all cursor-pointer"
+                >
+                  <Sliders className="w-4 h-4 text-sky-400 shrink-0" />
+                  <span>Equalizer & FX</span>
+                </button>
+
+                {/* Sleep Timer */}
+                <button
+                  onClick={() => {
+                    setShowMobileDrawer(false);
+                    onOpenSleepTimer();
+                  }}
+                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold text-[var(--text-muted)] hover:text-white hover:bg-white/5 transition-all cursor-pointer"
+                >
+                  <Moon className="w-4 h-4 text-indigo-400 shrink-0" />
+                  <span>Sleep Timer</span>
+                </button>
+
+                {/* Car Driving Mode */}
+                <button
+                  onClick={() => {
+                    setShowMobileDrawer(false);
+                    onOpenCarMode();
+                  }}
+                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold text-[var(--text-muted)] hover:text-white hover:bg-white/5 transition-all cursor-pointer"
+                >
+                  <Car className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>Car Driving Mode</span>
+                </button>
+
+                {/* Screensaver */}
+                <button
+                  onClick={() => {
+                    setShowMobileDrawer(false);
+                    onOpenScreensaver();
+                  }}
+                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold text-[var(--text-muted)] hover:text-white hover:bg-white/5 transition-all cursor-pointer"
+                >
+                  <Sparkles className="w-4 h-4 text-purple-400 shrink-0" />
+                  <span>Ambient Screensaver</span>
+                </button>
+
+                {/* PWA Install */}
+                {onOpenInstallModal && !isInstalled && (
+                  <button
+                    onClick={() => {
+                      setShowMobileDrawer(false);
+                      onOpenInstallModal();
+                    }}
+                    className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold text-[var(--accent-primary)] bg-[var(--accent-primary)]/10 border border-[var(--accent-primary)]/20 hover:bg-[var(--accent-primary)]/20 transition-all cursor-pointer"
+                  >
+                    <Download className="w-4 h-4 shrink-0" />
+                    <span>Install PWA App</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Bottom Account Profile */}
+            <div className="pt-3 border-t border-white/10 space-y-2">
+              {onOpenAuth && (
+                <button
+                  onClick={() => {
+                    setShowMobileDrawer(false);
+                    onOpenAuth();
+                  }}
+                  className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
+                    currentUser
+                      ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300'
+                      : 'bg-white/5 border-white/10 text-white'
+                  }`}
+                >
+                  <User className="w-4 h-4 text-[var(--accent-primary)] shrink-0" />
+                  <span className="truncate">
+                    {currentUser ? currentUser.displayName || currentUser.email : 'Sign In / Cloud Profile'}
+                  </span>
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 };

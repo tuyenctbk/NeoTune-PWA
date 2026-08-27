@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Heart, Search, Plus, Radio, ArrowUpDown, Trash2, Sparkles, Cloud, Check, Tag, X, PlusCircle, ChevronDown } from 'lucide-react';
-import { RadioStation, UserProfile } from '../types';
+import { Heart, Search, Plus, Radio, ArrowUpDown, Trash2, Sparkles, Cloud, Check, Tag, X, PlusCircle, ChevronDown, Clock, Play, Pause, Headphones, ListX, Bookmark } from 'lucide-react';
+import { RadioStation, UserProfile, ListenLaterItem } from '../types';
 import { storageService } from '../services/storageService';
 import { firebaseService } from '../services/firebaseService';
 import { audioEngine } from '../services/audioEngine';
@@ -37,6 +37,8 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
   onOpenFullPlayer,
 }) => {
   const { t } = useTranslation();
+  const [viewTab, setViewTab] = useState<'favorites' | 'listen_later'>('favorites');
+  const [listenLaterItems, setListenLaterItems] = useState<ListenLaterItem[]>(() => storageService.getListenLaterQueue());
   const [favorites, setFavorites] = useState<RadioStation[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTag, setSelectedTag] = useState<string>('All');
@@ -51,9 +53,12 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
   const [editingStation, setEditingStation] = useState<RadioStation | null>(null);
   const [newTagInput, setNewTagInput] = useState('');
   const [activeStationTags, setActiveStationTags] = useState<string[]>([]);
+  const [favDisplayLimit, setFavDisplayLimit] = useState(24);
+  const favSentinelRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const unsubFavs = storageService.subscribe(setFavorites);
+    const unsubListenLater = storageService.subscribeListenLater(setListenLaterItems);
     const unsubAudio = audioEngine.subscribe((state) => {
       setCurrentStationId(state.currentStation?.id || null);
       setActivePlayingStation(state.currentStation);
@@ -81,8 +86,50 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
       unsubAudio();
       unsubAuth();
       unsubFavs();
+      unsubListenLater();
     };
   }, []);
+
+  const handlePlayListenLaterItem = (item: ListenLaterItem) => {
+    triggerHaptic('selection');
+    if (item.type === 'radio' && item.station) {
+      audioEngine.playStation(item.station);
+    } else if (item.type === 'podcast_episode' && item.episode) {
+      const dummyShow = item.show || {
+        id: item.episode.showId || 'podcast_show',
+        name: item.subtitle || 'Podcast Episode',
+        genre: 'Podcast',
+        country: 'Global',
+        streamUrl: item.episode.audioUrl,
+        imageUrl: item.imageUrl || item.episode.artworkUrl || 'https://images.unsplash.com/photo-1590602847861-f357a9332bbc?w=300&q=80',
+        bitrate: '128k',
+        codec: 'MP3',
+        isFavorite: false,
+        artistName: item.subtitle,
+        trackCount: 1,
+        feedUrl: ''
+      };
+      audioEngine.playPodcastEpisode(dummyShow, item.episode);
+    } else if (item.audioUrl) {
+      const customStation: RadioStation = {
+        id: item.id,
+        name: item.title,
+        genre: item.subtitle || 'Saved Item',
+        country: 'Global',
+        streamUrl: item.audioUrl,
+        imageUrl: item.imageUrl || 'https://images.unsplash.com/photo-1590602847861-f357a9332bbc?w=300&q=80',
+        bitrate: '128k',
+        codec: 'MP3',
+        isFavorite: false
+      };
+      audioEngine.playStation(customStation);
+    }
+  };
+
+  const handleRemoveListenLater = (id: string) => {
+    triggerHaptic('light');
+    storageService.removeFromListenLater(id);
+  };
 
   const handlePlayStation = (station: RadioStation) => {
     if (currentStationId === station.id) {
@@ -172,6 +219,28 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
     return list;
   }, [favorites, searchQuery, selectedTag, sortBy]);
 
+  useEffect(() => {
+    setFavDisplayLimit(24);
+  }, [selectedTag, searchQuery, sortBy]);
+
+  useEffect(() => {
+    if (favDisplayLimit >= filteredFavorites.length) return;
+    const sentinel = favSentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setFavDisplayLimit((prev) => prev + 24);
+        }
+      },
+      { root: null, rootMargin: '350px', threshold: 0.01 }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [filteredFavorites.length, favDisplayLimit]);
+
   // Touch Swipe Gesture State for Tag Filter Cycling
   const favSwipeStartX = useRef<number | null>(null);
   const favSwipeEndX = useRef<number | null>(null);
@@ -245,39 +314,74 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
         onTouchEnd={handleFavTouchEnd}
         className="lg:col-span-7 xl:col-span-8 space-y-6 pb-28 min-w-0"
       >
-        {/* Header & Quick Action */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <h2 className="text-xl font-bold text-[var(--text-primary)] flex items-center gap-2">
-              <Heart className="w-5 h-5 text-rose-500 fill-current" />
-              <span>Saved Favorites</span>
-            </h2>
-            {currentUser && (
-              <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[10px] font-bold flex items-center gap-1">
-                <Cloud className="w-3 h-3" />
-                <span>Cloud Synced</span>
-              </span>
-            )}
-          </div>
-          <p className="text-xs text-[var(--text-muted)] mt-0.5 hidden sm:block">
-            {currentUser
-              ? 'Stored securely in Firebase Firestore with custom organizational tags and cross-device sync.'
-              : 'Instant offline access to your curated live broadcasts. Add custom tags to categorize stations.'}
-          </p>
-          <p className="text-xs text-[var(--text-muted)] mt-0.5 sm:hidden">
-            {currentUser ? 'Synced securely with Cloud' : 'Offline local library'}
-          </p>
+        {/* View Tab Selector: Favorites vs Listen Later */}
+        <div className="flex items-center gap-2 p-1.5 rounded-2xl bg-[var(--surface-main)]/60 border border-[var(--border-color)]">
+          <button
+            onClick={() => {
+              triggerHaptic('selection');
+              setViewTab('favorites');
+            }}
+            className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+              viewTab === 'favorites'
+                ? 'bg-[var(--accent-primary)] text-black shadow-md'
+                : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+            }`}
+          >
+            <Heart className={`w-4 h-4 ${viewTab === 'favorites' ? 'fill-current text-black' : ''}`} />
+            <span>Saved Favorites ({favorites.length})</span>
+          </button>
+          <button
+            onClick={() => {
+              triggerHaptic('selection');
+              setViewTab('listen_later');
+            }}
+            className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+              viewTab === 'listen_later'
+                ? 'bg-[var(--accent-primary)] text-black shadow-md'
+                : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+            }`}
+          >
+            <Clock className="w-4 h-4" />
+            <span>Listen Later ({listenLaterItems.length})</span>
+          </button>
         </div>
 
-        <button
-          onClick={onOpenAddStation}
-          className="flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-[var(--accent-primary)] text-black text-xs font-bold hover:opacity-90 transition-opacity cursor-pointer shadow-md"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Add Custom URL</span>
-        </button>
-      </div>
+        {/* Tab 1: Saved Favorites */}
+        {viewTab === 'favorites' && (
+          <div className="space-y-6">
+            {/* Header & Quick Action */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2.5">
+                  <h2 className="text-xl font-bold text-[var(--text-primary)] flex items-center gap-2">
+                    <Heart className="w-5 h-5 text-rose-500 fill-current" />
+                    <span>Saved Favorites</span>
+                  </h2>
+                  {currentUser && (
+                    <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[10px] font-bold flex items-center gap-1">
+                      <Cloud className="w-3 h-3" />
+                      <span>Cloud Synced</span>
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-[var(--text-muted)] mt-0.5 hidden sm:block">
+                  {currentUser
+                    ? 'Stored securely in Firebase Firestore with custom organizational tags and cross-device sync.'
+                    : 'Instant offline access to your curated live broadcasts. Add custom tags to categorize stations.'}
+                </p>
+                <p className="text-xs text-[var(--text-muted)] mt-0.5 sm:hidden">
+                  {currentUser ? 'Synced securely with Cloud' : 'Offline local library'}
+                </p>
+              </div>
+
+              <button
+                onClick={onOpenAddStation}
+                className="flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-[var(--accent-primary)] text-black text-xs font-bold hover:opacity-90 transition-opacity cursor-pointer shadow-md"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Add Custom URL</span>
+              </button>
+            </div>
 
       {favorites.length > 0 && (
         <>
@@ -400,36 +504,171 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
           )}
         </div>
       ) : (
-        <div className="columns-1 sm:columns-2 lg:columns-3 xl:columns-4 gap-3.5 [column-fill:_balance] w-full animate-fadeIn">
-          {filteredFavorites.map((station, index) => {
-            const isCurrentlyDragging = dragIndex === index;
-            const isReorderable = sortBy === 'date_added' && selectedTag === 'All' && !searchQuery.trim() && favorites.length > 1;
-            return (
-              <div
-                key={`fav_${station.id}`}
-                className={`break-inside-avoid mb-3.5 inline-block w-full transition-all duration-200 ${
-                  isCurrentlyDragging ? 'opacity-30 border-2 border-dashed border-[var(--accent-primary)] rounded-2xl scale-95' : 'opacity-100'
-                }`}
-                draggable={isReorderable}
-                onDragStart={(e) => handleDragStart(e, index)}
-                onDragOver={(e) => handleDragOver(e, index)}
-                onDragEnd={handleDragEnd}
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3.5 w-full animate-fadeIn">
+            {filteredFavorites.slice(0, favDisplayLimit).map((station, index) => {
+              const isCurrentlyDragging = dragIndex === index;
+              const isReorderable = sortBy === 'date_added' && selectedTag === 'All' && !searchQuery.trim() && favorites.length > 1;
+              return (
+                <div
+                  key={`fav_${station.id}`}
+                  className={`w-full transition-all duration-200 ${
+                    isCurrentlyDragging ? 'opacity-30 border-2 border-dashed border-[var(--accent-primary)] rounded-2xl scale-95' : 'opacity-100'
+                  }`}
+                  draggable={isReorderable}
+                  onDragStart={(e) => handleDragStart(e, index)}
+                  onDragOver={(e) => handleDragOver(e, index)}
+                  onDragEnd={handleDragEnd}
+                >
+                  <StationCard
+                    station={station}
+                    isPlaying={isPlaying}
+                    isCurrent={currentStationId === station.id}
+                    onPlay={handlePlayStation}
+                    onToggleFavorite={handleToggleFavorite}
+                    onSetAlarm={onSetAlarm}
+                    onShare={onShareStation}
+                    onEditTags={handleOpenTagManager}
+                  />
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Sentinel for infinite scroll */}
+          {favDisplayLimit < filteredFavorites.length && (
+            <div ref={favSentinelRef} className="py-4 text-center">
+              <button
+                onClick={() => setFavDisplayLimit((prev) => prev + 24)}
+                className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-xs text-[var(--text-muted)] hover:text-white transition-colors cursor-pointer"
               >
-                <StationCard
-                  station={station}
-                  isPlaying={isPlaying}
-                  isCurrent={currentStationId === station.id}
-                  onPlay={handlePlayStation}
-                  onToggleFavorite={handleToggleFavorite}
-                  onSetAlarm={onSetAlarm}
-                  onShare={onShareStation}
-                  onEditTags={handleOpenTagManager}
-                />
-              </div>
-            );
-          })}
-        </div>
+                Showing {favDisplayLimit} of {filteredFavorites.length} favorites — Scroll to load more
+              </button>
+            </div>
+          )}
+        </>
       )}
+          </div>
+        )}
+
+        {/* Tab 2: Listen Later Queue */}
+        {viewTab === 'listen_later' && (
+          <div className="space-y-4 animate-fadeIn">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <Clock className="w-5 h-5 text-[var(--accent-primary)]" />
+                <h3 className="text-base font-bold text-[var(--text-primary)]">Read / Listen Later Queue</h3>
+                <span className="px-2.5 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-mono font-bold">
+                  {listenLaterItems.length}
+                </span>
+              </div>
+              {listenLaterItems.length > 0 && (
+                <button
+                  onClick={() => {
+                    if (window.confirm('Clear all saved items in your Listen Later queue?')) {
+                      triggerHaptic('medium');
+                      storageService.clearListenLaterQueue();
+                    }
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Clear Queue</span>
+                </button>
+              )}
+            </div>
+
+            {listenLaterItems.length === 0 ? (
+              <div className="p-8 sm:p-12 rounded-3xl bg-[var(--surface-main)]/40 border border-[var(--border-color)] text-center flex flex-col items-center justify-center gap-3">
+                <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 shadow-inner">
+                  <Clock className="w-8 h-8" />
+                </div>
+                <h3 className="text-base font-bold text-[var(--text-primary)]">Your Listen Later Queue is Empty</h3>
+                <p className="text-xs text-[var(--text-muted)] max-w-sm leading-relaxed">
+                  Save specific radio segments, live channels, or podcast episodes to your secondary Read/Listen Later list to catch up anytime.
+                </p>
+                <button
+                  onClick={onNavigateRadio}
+                  className="mt-2 px-4 py-2 rounded-xl bg-[var(--accent-primary)] text-black font-bold text-xs hover:opacity-90 transition-opacity cursor-pointer flex items-center gap-2 shadow-md"
+                >
+                  <Radio className="w-4 h-4" />
+                  <span>Explore Channels</span>
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                {listenLaterItems.map((item) => {
+                  const isCurrentPlaying = (currentStationId === item.station?.id || audioEngine.getState().currentEpisode?.id === item.episode?.id) && isPlaying;
+                  return (
+                    <div
+                      key={item.id}
+                      className="group relative p-3.5 rounded-2xl bg-[var(--surface-main)]/70 hover:bg-[var(--surface-main)]/95 border border-[var(--border-color)] hover:border-amber-500/30 transition-all duration-300 shadow-lg shadow-black/20 flex items-center gap-3.5 min-w-0"
+                    >
+                      <div className="relative w-14 h-14 rounded-xl overflow-hidden shrink-0 bg-black/40 border border-white/10">
+                        <img
+                          src={item.imageUrl || item.station?.imageUrl || item.episode?.artworkUrl || 'https://images.unsplash.com/photo-1590602847861-f357a9332bbc?w=300&q=80'}
+                          alt={item.title}
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                          onError={(e) => {
+                            (e.target as HTMLElement).style.display = 'none';
+                          }}
+                        />
+                        <button
+                          onClick={() => handlePlayListenLaterItem(item)}
+                          className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity cursor-pointer"
+                        >
+                          {isCurrentPlaying ? (
+                            <Pause className="w-6 h-6 text-amber-300 fill-current drop-shadow-md" />
+                          ) : (
+                            <Play className="w-6 h-6 text-white fill-current drop-shadow-md" />
+                          )}
+                        </button>
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 mb-1">
+                          <span className="px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-300 text-[10px] font-bold tracking-wider uppercase border border-amber-500/20">
+                            {item.type === 'podcast_episode' ? 'Episode' : 'Radio Stream'}
+                          </span>
+                          <span className="text-[10px] text-[var(--text-muted)] font-mono">
+                            {new Date(item.addedAt).toLocaleDateString()}
+                          </span>
+                        </div>
+                        <h4 className="text-xs font-bold text-[var(--text-primary)] truncate group-hover:text-amber-300 transition-colors">
+                          {item.title}
+                        </h4>
+                        <p className="text-[11px] text-[var(--text-muted)] truncate mt-0.5">
+                          {item.subtitle}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          onClick={() => handlePlayListenLaterItem(item)}
+                          className={`p-2.5 rounded-xl transition-all cursor-pointer ${
+                            isCurrentPlaying
+                              ? 'bg-amber-500 text-black shadow-md'
+                              : 'bg-[var(--accent-primary)]/10 hover:bg-[var(--accent-primary)] text-[var(--accent-primary)] hover:text-black'
+                          }`}
+                          title={isCurrentPlaying ? 'Pause' : 'Play Now'}
+                        >
+                          {isCurrentPlaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current" />}
+                        </button>
+                        <button
+                          onClick={() => handleRemoveListenLater(item.id)}
+                          className="p-2.5 rounded-xl text-[var(--text-muted)] hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                          title="Remove from Queue"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
 
       {/* Custom Tag Management Modal Dialog */}
       {editingStation && (

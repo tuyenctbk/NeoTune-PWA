@@ -113,6 +113,32 @@
   }
 }
 
+/* Smart 5-Second Cross-Fade Theme Transition Effect */
+html[data-theme-transitioning="true"],
+html[data-theme-transitioning="true"] body,
+html[data-theme-transitioning="true"] #root,
+html[data-theme-transitioning="true"] div,
+html[data-theme-transitioning="true"] nav,
+html[data-theme-transitioning="true"] header,
+html[data-theme-transitioning="true"] main,
+html[data-theme-transitioning="true"] aside,
+html[data-theme-transitioning="true"] section,
+html[data-theme-transitioning="true"] footer,
+html[data-theme-transitioning="true"] button,
+html[data-theme-transitioning="true"] span,
+html[data-theme-transitioning="true"] p,
+html[data-theme-transitioning="true"] h1,
+html[data-theme-transitioning="true"] h2,
+html[data-theme-transitioning="true"] h3,
+html[data-theme-transitioning="true"] h4,
+html[data-theme-transitioning="true"] a {
+  transition: background-color 5s cubic-bezier(0.25, 1, 0.5, 1),
+              background 5s cubic-bezier(0.25, 1, 0.5, 1),
+              color 5s cubic-bezier(0.25, 1, 0.5, 1),
+              border-color 5s cubic-bezier(0.25, 1, 0.5, 1),
+              box-shadow 5s cubic-bezier(0.25, 1, 0.5, 1) !important;
+}
+
 /* Mobile Safe Area Inset Utility Helpers */
 .pt-safe {
   padding-top: env(safe-area-inset-top, 0px);
@@ -172,6 +198,29 @@ button, a, [role="button"] {
   50% { opacity: 1; filter: drop-shadow(0 0 16px var(--accent-secondary)); }
 }
 
+@keyframes beatPulse {
+  0%, 100% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 2px rgba(167, 139, 250, 0.2));
+  }
+  25% {
+    transform: scale(1.06);
+    filter: drop-shadow(0 0 12px rgba(167, 139, 250, 0.7));
+  }
+  50% {
+    transform: scale(1.02);
+    filter: drop-shadow(0 0 4px rgba(167, 139, 250, 0.3));
+  }
+  75% {
+    transform: scale(1.05);
+    filter: drop-shadow(0 0 10px rgba(56, 189, 248, 0.6));
+  }
+}
+
+.animate-beat-pulse {
+  animation: beatPulse 1.25s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
 .neon-glow-primary {
   box-shadow: 0 0 16px rgba(0, 240, 255, 0.25);
 }
@@ -189,16 +238,37 @@ button, a, [role="button"] {
 }
 
 .glass-card {
-  background-color: rgba(255, 255, 255, 0.035);
+  background-color: var(--surface-card, rgba(255, 255, 255, 0.035));
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border-color);
   box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+  transition: background-color 0.2s ease, border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .glass-card:hover {
-  background-color: rgba(255, 255, 255, 0.065);
-  border-color: rgba(255, 255, 255, 0.16);
+  background-color: var(--surface-hover, rgba(255, 255, 255, 0.065));
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.glass-card-interactive {
+  background-color: var(--surface-card, rgba(255, 255, 255, 0.035));
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border-color);
+  box-shadow: 0 4px 20px 0 rgba(0, 0, 0, 0.25);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-card-interactive:hover {
+  background-color: var(--surface-hover, rgba(255, 255, 255, 0.065));
+  border-color: rgba(255, 255, 255, 0.22);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 28px 0 rgba(0, 0, 0, 0.4);
+}
+
+.glass-card-interactive:active {
+  transform: translateY(0px) scale(0.99);
 }
 
 .glass-input {
@@ -206,6 +276,13 @@ button, a, [role="button"] {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.glass-input:focus {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(167, 139, 250, 0.25);
+  background-color: rgba(255, 255, 255, 0.07);
 }
 
 .glass-pill {
@@ -213,6 +290,22 @@ button, a, [role="button"] {
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: all 0.15s ease;
+}
+
+.glass-pill:hover {
+  background-color: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+/* Accessibility Focus Ring */
+.focus-ring {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+}
+.focus-ring:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
 }
 
 /* Marquee for long station titles */
@@ -349,4 +442,3 @@ button, a, [role="button"] {
 .mt-safe {
   margin-top: max(env(safe-area-inset-top, 0px), 12px);
 }
-

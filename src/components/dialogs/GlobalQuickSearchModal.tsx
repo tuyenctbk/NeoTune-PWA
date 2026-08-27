@@ -2,11 +2,12 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   Search, X, Radio, Disc, Play, Sparkles, Volume2, HelpCircle, Keyboard, 
   AlertTriangle, ArrowRight, CornerDownLeft, Filter, Globe, Gauge, Music, 
-  RotateCcw, SlidersHorizontal, ChevronDown, Check
+  RotateCcw, SlidersHorizontal, ChevronDown, Check, Clock, History, Trash2
 } from 'lucide-react';
 import { RadioStation, PodcastShow, PodcastEpisode } from '../../types';
 import { apiService } from '../../services/apiService';
 import { audioEngine } from '../../services/audioEngine';
+import { storageService } from '../../services/storageService';
 import { searchAndRank } from '../../utils/fuzzySearch';
 import { triggerHaptic } from '../../utils/haptics';
 
@@ -89,6 +90,7 @@ export const GlobalQuickSearchModal: React.FC<GlobalQuickSearchModalProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [results, setResults] = useState<MergedSearchResult[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [recentSearches, setRecentSearches] = useState<string[]>(() => storageService.getSearchHistory().slice(0, 5));
 
   const inputRef = useRef<HTMLInputElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
@@ -108,6 +110,7 @@ export const GlobalQuickSearchModal: React.FC<GlobalQuickSearchModalProps> = ({
     if (isOpen) {
       setTimeout(() => inputRef.current?.focus(), 100);
       setSelectedIndex(0);
+      setRecentSearches(storageService.getSearchHistory().slice(0, 5));
     }
   }, [isOpen]);
 
@@ -230,6 +233,10 @@ export const GlobalQuickSearchModal: React.FC<GlobalQuickSearchModalProps> = ({
 
   const handleSelectResult = async (result: MergedSearchResult) => {
     triggerHaptic('play');
+    if (query.trim()) {
+      storageService.addSearchHistory(query.trim());
+      setRecentSearches(storageService.getSearchHistory().slice(0, 5));
+    }
     if (result.type === 'station') {
       audioEngine.playStation(result.original);
       onClose();
@@ -430,7 +437,58 @@ export const GlobalQuickSearchModal: React.FC<GlobalQuickSearchModalProps> = ({
         </div>
 
         {/* Results section */}
-        <div className="overflow-y-auto flex-1 min-h-[260px] p-2 sm:p-3">
+        <div className="overflow-y-auto flex-1 min-h-[260px] p-2 sm:p-3 space-y-3">
+          {/* Recent Searches Section (Last 5 Search Queries - Shown when query is empty) */}
+          {recentSearches.length > 0 && !query && (
+            <div className="p-3 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 space-y-2">
+              <div className="flex items-center justify-between text-xs font-bold">
+                <span className="flex items-center gap-1.5 text-cyan-300">
+                  <History className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Recent Searches</span>
+                </span>
+                <button
+                  onClick={() => {
+                    triggerHaptic('light');
+                    storageService.clearSearchHistory();
+                    setRecentSearches([]);
+                  }}
+                  className="text-[10px] text-zinc-400 hover:text-rose-400 flex items-center gap-1 transition-colors cursor-pointer"
+                  title="Clear search history"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  <span>Clear All</span>
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {recentSearches.map((term) => (
+                  <div
+                    key={term}
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-white/5 hover:bg-cyan-500/20 border border-white/10 hover:border-cyan-500/40 text-xs text-zinc-200 hover:text-cyan-200 transition-all cursor-pointer group"
+                    onClick={() => {
+                      triggerHaptic('selection');
+                      setQuery(term);
+                    }}
+                  >
+                    <Clock className="w-3 h-3 text-cyan-400 opacity-70 group-hover:opacity-100" />
+                    <span className="font-medium">{term}</span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        triggerHaptic('light');
+                        const updated = storageService.removeSearchHistoryEntry(term);
+                        setRecentSearches(updated);
+                      }}
+                      className="p-0.5 rounded hover:bg-white/10 text-zinc-400 hover:text-rose-300 transition-colors cursor-pointer"
+                      title="Remove from history"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {isLoading ? (
             <div className="flex flex-col items-center justify-center gap-2.5 py-16">
               <div className="w-7 h-7 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />

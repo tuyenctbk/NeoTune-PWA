@@ -1,5 +1,6 @@
 import React from 'react';
-import { Radio, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
+import { NeoTuneLogo } from './NeoTuneLogo';
 
 interface ErrorBoundaryProps {
   children: React.ReactNode;
@@ -43,8 +44,8 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
       return (
         <div className="min-h-screen w-full bg-[#0A050E] text-white flex flex-col items-center justify-center p-6 select-none font-sans">
           <div className="max-w-md w-full p-6 sm:p-8 rounded-3xl bg-[#16101f] border border-purple-500/30 shadow-2xl shadow-purple-900/40 text-center space-y-5">
-            <div className="w-16 h-16 rounded-2xl bg-purple-500/20 text-purple-400 border border-purple-500/30 mx-auto flex items-center justify-center">
-              <Radio className="w-8 h-8 animate-pulse" />
+            <div className="mx-auto flex justify-center">
+              <NeoTuneLogo size={56} showText={false} isPlaying={false} />
             </div>
 
             <div className="space-y-2">

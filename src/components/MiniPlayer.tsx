@@ -17,7 +17,8 @@ import {
   ChevronRight,
   Share2,
   Sparkles,
-  ChevronDown
+  ChevronDown,
+  RotateCcw
 } from 'lucide-react';
 import { audioEngine } from '../services/audioEngine';
 import { storageService } from '../services/storageService';
@@ -57,6 +58,9 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   const [favorites, setFavorites] = useState<RadioStation[]>(() => storageService.getFavorites());
   const [visSkin, setVisSkin] = useState<VisualizerSkin>(() => storageService.getVisualizerSkin());
   const [showSkinDropdown, setShowSkinDropdown] = useState<boolean>(false);
+  const [imgError, setImgError] = useState<boolean>(false);
+
+  const fallbackArt = 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=200&auto=format&fit=crop&q=80';
 
   const handleSelectSkin = (skin: VisualizerSkin) => {
     triggerHaptic('selection');
@@ -65,15 +69,23 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
     setShowSkinDropdown(false);
   };
 
-  // Horizontal Swipe Gestures State
+  // Horizontal & Vertical Swipe Gestures State
   const [swipeOffset, setSwipeOffset] = useState<number>(0);
   const [isSwiping, setIsSwiping] = useState<boolean>(false);
   const [swipeFeedback, setSwipeFeedback] = useState<'prev' | 'next' | null>(null);
+  const [showVolumeHUD, setShowVolumeHUD] = useState<boolean>(false);
+  const [volumeHudTimeout, setVolumeHudTimeout] = useState<NodeJS.Timeout | null>(null);
 
   const touchStartX = useRef<number>(0);
   const touchStartY = useRef<number>(0);
   const touchStartTime = useRef<number>(0);
-  const isHorizontalSwipe = useRef<boolean>(false);
+  const touchStartVolume = useRef<number>(0.85);
+  const gestureMode = useRef<'none' | 'horizontal' | 'vertical'>('none');
+  const lastVolStep = useRef<number>(0);
+
+  useEffect(() => {
+    setImgError(false);
+  }, [station?.id, episode?.id]);
 
   useEffect(() => {
     const unsub = audioEngine.subscribe((state) => {
@@ -94,8 +106,9 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
     return () => {
       unsub();
       unsubFavs();
+      if (volumeHudTimeout) clearTimeout(volumeHudTimeout);
     };
-  }, []);
+  }, [volumeHudTimeout]);
 
   if (!station) return null;
 
@@ -122,13 +135,15 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
     await audioEngine.playPreviousStation();
   };
 
-  // Horizontal Touch Gesture Handlers
+  // Touch Gesture Handlers (Horizontal Station Change + Vertical Volume Control)
   const handleTouchStart = (e: React.TouchEvent) => {
     if (e.touches.length !== 1) return;
     touchStartX.current = e.touches[0].clientX;
     touchStartY.current = e.touches[0].clientY;
     touchStartTime.current = Date.now();
-    isHorizontalSwipe.current = false;
+    touchStartVolume.current = volume;
+    lastVolStep.current = Math.round(volume * 20);
+    gestureMode.current = 'none';
     setIsSwiping(false);
   };
 
@@ -139,15 +154,22 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
     const deltaX = currentX - touchStartX.current;
     const deltaY = currentY - touchStartY.current;
 
-    // Detect if this is an intentional horizontal swipe
-    if (!isHorizontalSwipe.current && Math.abs(deltaX) > 12 && Math.abs(deltaX) > Math.abs(deltaY) * 1.2) {
-      isHorizontalSwipe.current = true;
-      setIsSwiping(true);
-      triggerHaptic('swipe');
+    // Detect gesture intent
+    if (gestureMode.current === 'none') {
+      if (Math.abs(deltaX) > 10 && Math.abs(deltaX) > Math.abs(deltaY) * 1.15) {
+        gestureMode.current = 'horizontal';
+        setIsSwiping(true);
+        triggerHaptic('swipe');
+      } else if (Math.abs(deltaY) > 8 && Math.abs(deltaY) > Math.abs(deltaX) * 1.15) {
+        gestureMode.current = 'vertical';
+        setShowVolumeHUD(true);
+        if (volumeHudTimeout) clearTimeout(volumeHudTimeout);
+        triggerHaptic('light');
+      }
     }
 
-    if (isHorizontalSwipe.current) {
-      // Apply rubber-band damping
+    if (gestureMode.current === 'horizontal') {
+      // Horizontal swipe to switch station
       const dampedOffset = Math.max(-90, Math.min(90, deltaX * 0.75));
       setSwipeOffset(dampedOffset);
 
@@ -158,11 +180,25 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
       } else {
         setSwipeFeedback(null);
       }
+    } else if (gestureMode.current === 'vertical') {
+      // Vertical swipe to adjust volume: Dragging up increases, down decreases
+      // 160px drag spans the entire 0.0 - 1.0 volume range
+      const calculatedVol = Math.max(0, Math.min(1, touchStartVolume.current - (deltaY / 160)));
+      audioEngine.setVolume(calculatedVol);
+
+      // Trigger subtle haptic click on each 5% change
+      const currentStep = Math.round(calculatedVol * 20);
+      if (currentStep !== lastVolStep.current) {
+        lastVolStep.current = currentStep;
+        triggerHaptic('selection');
+      }
+
+      setShowVolumeHUD(true);
     }
   };
 
   const handleTouchEnd = async () => {
-    if (isHorizontalSwipe.current) {
+    if (gestureMode.current === 'horizontal') {
       const threshold = 40;
       if (swipeOffset < -threshold) {
         // Swiped Left -> Next Station
@@ -185,17 +221,21 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
           setSwipeFeedback(null);
         }, 120);
       } else {
-        // Spring back to center
         setSwipeOffset(0);
         setIsSwiping(false);
         setSwipeFeedback(null);
       }
+    } else if (gestureMode.current === 'vertical') {
+      const t = setTimeout(() => {
+        setShowVolumeHUD(false);
+      }, 1000);
+      setVolumeHudTimeout(t);
     } else {
       setSwipeOffset(0);
       setIsSwiping(false);
       setSwipeFeedback(null);
     }
-    isHorizontalSwipe.current = false;
+    gestureMode.current = 'none';
   };
 
   const isPodcast = !!episode;
@@ -203,7 +243,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   return (
     <div
       id="neotune-miniplayer"
-      className="fixed bottom-0 left-0 right-0 z-40 px-2 pb-[calc(env(safe-area-inset-bottom,0px)+8px)] sm:px-6 sm:pb-4 pointer-events-none animate-slideUp select-none"
+      className="fixed bottom-[calc(env(safe-area-inset-bottom,0px)+58px)] md:bottom-0 left-0 right-0 z-40 px-2 pb-1.5 md:px-6 md:pb-4 pointer-events-none animate-slideUp select-none"
     >
       <div 
         onTouchStart={handleTouchStart}
@@ -213,7 +253,8 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
           setSwipeOffset(0);
           setIsSwiping(false);
           setSwipeFeedback(null);
-          isHorizontalSwipe.current = false;
+          setShowVolumeHUD(false);
+          gestureMode.current = 'none';
         }}
         style={{
           transform: `translateX(${swipeOffset}px)`,
@@ -223,15 +264,50 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
       >
         {/* Visual Swipe Directional Indicator Badges */}
         {swipeFeedback === 'next' && (
-          <div className="absolute right-3 top-1/2 -translate-y-1/2 z-20 pointer-events-none flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-cyan-500 text-black font-bold text-xs shadow-lg animate-pulse">
+          <div className="absolute right-3 top-1/2 -translate-y-1/2 z-30 pointer-events-none flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-cyan-500 text-black font-bold text-xs shadow-lg animate-pulse">
             <span>Next Station</span>
             <ChevronRight className="w-4 h-4" />
           </div>
         )}
         {swipeFeedback === 'prev' && (
-          <div className="absolute left-3 top-1/2 -translate-y-1/2 z-20 pointer-events-none flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-purple-500 text-white font-bold text-xs shadow-lg animate-pulse">
+          <div className="absolute left-3 top-1/2 -translate-y-1/2 z-30 pointer-events-none flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-purple-500 text-white font-bold text-xs shadow-lg animate-pulse">
             <ChevronLeft className="w-4 h-4" />
             <span>Prev Station</span>
+          </div>
+        )}
+
+        {/* Live Vertical Volume Gesture HUD Overlay */}
+        {showVolumeHUD && (
+          <div className="absolute inset-0 z-30 bg-black/85 backdrop-blur-md flex items-center justify-between px-5 pointer-events-none animate-fadeIn border border-white/15 rounded-2xl">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-xl bg-[var(--accent-primary)] text-black">
+                {isMuted || volume === 0 ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+              </div>
+              <div>
+                <div className="text-[11px] uppercase tracking-wider text-[var(--text-muted)] font-semibold">
+                  Swipe Volume
+                </div>
+                <div className="text-base font-black text-white">
+                  {Math.round(volume * 100)}%
+                </div>
+              </div>
+            </div>
+
+            <div className="flex-1 max-w-[200px] mx-4">
+              <div className="w-full h-3 bg-white/10 rounded-full overflow-hidden p-0.5 border border-white/10">
+                <div
+                  className="h-full rounded-full transition-all duration-75"
+                  style={{
+                    width: `${Math.round(volume * 100)}%`,
+                    background: 'linear-gradient(to right, #06b6d4, var(--accent-primary))'
+                  }}
+                />
+              </div>
+            </div>
+
+            <span className="text-[11px] font-mono text-[var(--accent-primary)] font-bold">
+              {volume > 0.8 ? 'HIGH' : volume > 0.4 ? 'MED' : 'LOW'}
+            </span>
           </div>
         )}
 
@@ -249,17 +325,21 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
             onClick={onExpandPlayer}
             className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1 cursor-pointer group"
           >
-            <div className="relative w-12 h-12 sm:w-14 sm:h-14 rounded-xl overflow-hidden bg-black/40 shrink-0 border border-white/10 group-hover:border-[var(--accent-primary)] transition-colors">
+            <div className={`relative w-12 h-12 sm:w-14 sm:h-14 rounded-xl overflow-hidden bg-black/40 shrink-0 border transition-all duration-300 ${
+              isPlaying && !isBuffering
+                ? 'border-[var(--accent-primary)] ring-2 ring-[var(--accent-primary)]/50 ring-offset-1 ring-offset-black/80 shadow-[0_0_20px_rgba(167,139,250,0.5)] animate-beat-pulse'
+                : 'border-white/10 group-hover:border-[var(--accent-primary)]'
+            }`}>
               <img
-                src={episode?.artworkUrl || station.imageUrl}
+                src={imgError || (!episode?.artworkUrl && !station.imageUrl) ? fallbackArt : (episode?.artworkUrl || station.imageUrl)}
                 alt={station.name}
-                className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-                onError={(e) => {
-                  (e.target as HTMLElement).style.display = 'none';
-                }}
+                className={`w-full h-full object-cover transition-transform duration-300 ${
+                  isPlaying && !isBuffering ? 'scale-105' : 'group-hover:scale-105'
+                }`}
+                onError={() => setImgError(true)}
               />
               {isPlaying && (
-                <div className="absolute top-1 left-1 px-1.5 py-0.5 rounded bg-black/75 backdrop-blur-sm border border-white/10 flex items-center gap-1">
+                <div className="absolute top-1 left-1 px-1.5 py-0.5 rounded bg-black/75 backdrop-blur-sm border border-white/10 flex items-center gap-1 z-10">
                   <CSSAudioVisualizer isPlaying={isPlaying} isBuffering={isBuffering} size="sm" />
                   <span className="text-white text-[8px] font-bold uppercase tracking-wider">
                     {isPodcast ? 'EP' : 'LIVE'}
@@ -273,6 +353,24 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                 <h4 className="text-xs sm:text-sm font-bold text-[var(--text-primary)] truncate group-hover:text-[var(--accent-primary)] transition-colors">
                   {episode ? episode.title : station.name}
                 </h4>
+                {sleepRemaining !== null && (
+                  <span
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      triggerHaptic('light');
+                      onOpenSleepTimer();
+                    }}
+                    className={`sm:hidden px-2 py-0.5 rounded-full font-mono text-[10px] font-bold flex items-center gap-1 shrink-0 cursor-pointer shadow-sm transition-all duration-500 ${
+                      sleepRemaining < 300
+                        ? 'bg-amber-500/30 border border-amber-500/60 text-amber-200 ring-2 ring-amber-400/40 animate-pulse'
+                        : 'bg-indigo-500/25 border border-indigo-500/40 text-indigo-300'
+                    }`}
+                    title="Sleep Timer Active - Tap to view"
+                  >
+                    <Moon className={`w-3 h-3 ${sleepRemaining < 300 ? 'text-amber-300 fill-amber-300/50' : 'text-indigo-400 fill-indigo-400/40'}`} />
+                    <span>{formatRemainingTimer(sleepRemaining)}</span>
+                  </span>
+                )}
                 {station.countryCode && !episode && (
                   <span className="text-xs shrink-0 hidden sm:inline">{getFlag(station.countryCode)}</span>
                 )}
@@ -321,6 +419,17 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
               aria-label="Previous Station"
             >
               <SkipBack className="w-4 h-4" />
+            </button>
+
+            {/* Rewind 30s Button */}
+            <button
+              onClick={() => audioEngine.rewind30Seconds()}
+              className="p-2 rounded-xl text-[var(--text-muted)] hover:text-white hover:bg-white/10 active:scale-95 transition-all relative"
+              title="Rewind 30 Seconds"
+              aria-label="Rewind 30 Seconds"
+            >
+              <RotateCcw className="w-4 h-4" />
+              <span className="absolute top-0.5 right-0.5 bg-[var(--accent-primary)] text-black font-extrabold text-[7px] p-0.5 rounded-full scale-[0.8] leading-none">30</span>
             </button>
 
             {/* Primary Play/Pause Button with Haptic Pulse */}
@@ -374,16 +483,24 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                 triggerHaptic('light');
                 onOpenSleepTimer();
               }}
-              className={`p-2 rounded-xl transition-colors ${
+              className={`p-2 rounded-xl transition-all duration-500 cursor-pointer ${
                 sleepRemaining !== null
-                  ? 'bg-indigo-500/20 text-indigo-300 font-mono text-[11px] flex items-center gap-1 border border-indigo-500/30'
+                  ? sleepRemaining < 300
+                    ? 'bg-amber-500/30 text-amber-200 font-mono text-xs flex items-center gap-1.5 border border-amber-500/60 shadow-md shadow-amber-950/60 ring-2 ring-amber-400/50 animate-pulse'
+                    : 'bg-indigo-500/25 text-indigo-200 font-mono text-xs flex items-center gap-1.5 border border-indigo-500/40 shadow-sm shadow-indigo-950/50 ring-1 ring-indigo-400/30'
                   : 'text-[var(--text-muted)] hover:text-white hover:bg-white/10'
               }`}
-              title="Sleep Timer"
+              title={sleepRemaining !== null ? `Sleep Timer Active: ${formatRemainingTimer(sleepRemaining)} remaining` : "Set Sleep Timer"}
             >
-              <Moon className="w-4 h-4" />
+              <Moon className={`w-4 h-4 ${
+                sleepRemaining !== null
+                  ? sleepRemaining < 300
+                    ? 'text-amber-300 fill-amber-300/50'
+                    : 'text-indigo-400 fill-indigo-400/40'
+                  : ''
+              }`} />
               {sleepRemaining !== null && (
-                <span>{Math.floor(sleepRemaining / 60)}m</span>
+                <span className="font-bold">{formatRemainingTimer(sleepRemaining)}</span>
               )}
             </button>
 
@@ -536,4 +653,16 @@ function getFlag(code: string): string {
     .split('')
     .map(c => 127397 + c.charCodeAt(0));
   return String.fromCodePoint(...codePoints);
+}
+
+function formatRemainingTimer(totalSec: number): string {
+  if (totalSec <= 0) return '0:00';
+  const mins = Math.floor(totalSec / 60);
+  const secs = totalSec % 60;
+  if (mins >= 60) {
+    const hrs = Math.floor(mins / 60);
+    const rmMins = mins % 60;
+    return `${hrs}h ${rmMins}m`;
+  }
+  return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
 }

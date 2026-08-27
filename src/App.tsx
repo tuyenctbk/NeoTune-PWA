@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { WifiOff, Wifi, X, AlertTriangle, Database, ExternalLink } from 'lucide-react';
+import { WifiOff, Wifi, X, AlertTriangle, Database, ExternalLink, RefreshCw } from 'lucide-react';
 import { Navbar } from './components/Navbar';
 import { MiniPlayer } from './components/MiniPlayer';
 import { FullPlayerModal } from './components/FullPlayerModal';
@@ -36,6 +36,7 @@ import { RadioView } from './views/RadioView';
 import { PodcastsView } from './views/PodcastsView';
 import { FavoritesView } from './views/FavoritesView';
 import { SettingsView } from './views/SettingsView';
+import { SplashScreen } from './components/SplashScreen';
 
 import { ResumeDeviceBanner } from './components/ResumeDeviceBanner';
 
@@ -43,6 +44,7 @@ import { ResumeDeviceBanner } from './components/ResumeDeviceBanner';
 import { AppView, ThemeType, RadioStation, PodcastShow, CountryInfo, FilterConfig, UserProfile, ActivePlaybackSession } from './types';
 import { storageService } from './services/storageService';
 import { updateMetaThemeColor, getStationColor } from './utils/themeColor';
+import { getSunTimes } from './utils/sunTimes';
 import { storageCacheService } from './services/storageCacheService';
 import { audioEngine } from './services/audioEngine';
 import { apiService } from './services/apiService';
@@ -68,6 +70,25 @@ export default function App() {
   // Navigation & Display Modes
   const [currentView, setCurrentView] = useState<AppView>('radio');
   const [theme, setTheme] = useState<ThemeType>(() => storageService.getTheme());
+  const [coordinates, setCoordinates] = useState<{ lat: number; lng: number } | null>(null);
+
+  // Fetch coordinates on session start for astronomical day/night theme updates
+  useEffect(() => {
+    if (typeof navigator !== 'undefined' && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setCoordinates({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude
+          });
+        },
+        (error) => {
+          console.warn('Geolocation access denied or unavailable, using standard solar time fallback:', error);
+        },
+        { enableHighAccuracy: false, timeout: 8000, maximumAge: 3600000 }
+      );
+    }
+  }, []);
   const [isCarMode, setIsCarMode] = useState(false);
   const [isScreensaver, setIsScreensaver] = useState(false);
   const [isTVMode, setIsTVMode] = useState(false);
@@ -79,6 +100,9 @@ export default function App() {
   const [filterConfig, setFilterConfig] = useState<FilterConfig>(() => storageService.getFilterConfig());
   const [availableStations, setAvailableStations] = useState<RadioStation[]>([]);
   const [isAudioEngineReady, setIsAudioEngineReady] = useState(false);
+  const [splashProgress, setSplashProgress] = useState(0);
+  const [isSplashActive, setIsSplashActive] = useState(true);
+  const [triviaFact, setTriviaFact] = useState('FM radio was patented by Edwin Howard Armstrong in 1933, offering static-free audio.');
 
   // Modals & Drawers State
   const [isFullPlayerOpen, setIsFullPlayerOpen] = useState(false);
@@ -122,9 +146,10 @@ export default function App() {
   // Alarm Execution Trackers to avoid duplicate trigger
   const lastAlarmTriggerRef = useRef<string>('');
 
-  // Offline Network Toast Tracker
+  // Offline Network Toast Tracker & Reconnecting Toast Tracker
   const [isOffline, setIsOffline] = useState<boolean>(() => (typeof navigator !== 'undefined' ? !navigator.onLine : false));
   const [showOfflineToast, setShowOfflineToast] = useState<boolean>(false);
+  const [isReconnectingToast, setIsReconnectingToast] = useState<boolean>(false);
   const [networkStatusText, setNetworkStatusText] = useState<string>('');
   const [isQuotaExceeded, setIsQuotaExceeded] = useState<boolean>(() => firebaseService.isQuotaExceeded);
 
@@ -168,10 +193,26 @@ export default function App() {
     return `${base} max-w-7xl px-4 sm:px-6 md:pl-8 md:pr-6`;
   }, [screenConfig]);
 
-  // 1. Initialize App Theme, Stats, Countries & Auto-Play
+  // 1. Initialize App Theme & Smart 5-Second Cross-Fade Transition
+  const prevThemeRef = useRef<ThemeType>(theme);
+
   useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
-    storageService.saveTheme(theme);
+    if (prevThemeRef.current !== theme) {
+      document.documentElement.setAttribute('data-theme-transitioning', 'true');
+      prevThemeRef.current = theme;
+
+      const timer = setTimeout(() => {
+        document.documentElement.removeAttribute('data-theme-transitioning');
+      }, 5200);
+
+      document.documentElement.setAttribute('data-theme', theme);
+      storageService.saveTheme(theme);
+
+      return () => clearTimeout(timer);
+    } else {
+      document.documentElement.setAttribute('data-theme', theme);
+      storageService.saveTheme(theme);
+    }
   }, [theme]);
 
   // 1.0 Auto-Prune LocalStorage Cache on Startup & Update Dynamic PWA Meta Theme-Color
@@ -187,6 +228,12 @@ export default function App() {
       }
       setSleepRemainingSec(state.sleepTimerRemainingSec);
       setSleepFadeSec(state.sleepTimerFadeSec);
+
+      if (state.isReconnecting && state.streamRetryCount > 2) {
+        setIsReconnectingToast(true);
+      } else if (!state.isReconnecting) {
+        setIsReconnectingToast(false);
+      }
     });
 
     return () => {
@@ -232,15 +279,23 @@ export default function App() {
     };
   }, []);
 
-  // 1.1b Time-Based Theme Listener (cyberpunk during daylight, oled at night)
+  // 1.1b Time-Based Theme Listener (OLED at local sunset, Cyberpunk/Frosted Glass at local sunrise)
   useEffect(() => {
     const checkTimeBasedTheme = () => {
       if (storageService.getTimeBasedTheme()) {
-        const hours = new Date().getHours();
-        const isDaylight = hours >= 6 && hours < 18;
+        const now = new Date();
+        const currentHourDecimal = now.getHours() + now.getMinutes() / 60;
+        
+        let isDaylight = currentHourDecimal >= 6.0 && currentHourDecimal < 18.0;
+        if (coordinates) {
+          const { sunrise, sunset } = getSunTimes(coordinates.lat, coordinates.lng, now);
+          isDaylight = currentHourDecimal >= sunrise && currentHourDecimal < sunset;
+        }
+        
         const targetTheme: ThemeType = isDaylight ? 'cyberpunk' : 'oled';
         if (theme !== targetTheme) {
           setTheme(targetTheme);
+          storageService.saveTheme(targetTheme);
         }
       }
     };
@@ -248,7 +303,7 @@ export default function App() {
     checkTimeBasedTheme();
     const interval = setInterval(checkTimeBasedTheme, 15000); // Check every 15 seconds
     return () => clearInterval(interval);
-  }, [theme]);
+  }, [theme, coordinates]);
 
   // 1.2 Monitor Network Online/Offline Status for Toast Alert
   useEffect(() => {
@@ -523,112 +578,141 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    // Increment session counter
-    storageService.incrementSessionCount();
+    // Start splash loading progression
+    setSplashProgress(12);
 
-    // Fetch list of countries & auto-detect default device country area
-    apiService.getCountries().then((fetchedCountries) => {
-      setCountries(fetchedCountries);
-      
-      // Auto-detect country/area if none selected yet
-      if (!selectedCountryName && typeof window !== 'undefined') {
-        const locale = navigator.language || (navigator.languages && navigator.languages[0]) || '';
-        const parts = locale.split(/[-_]/);
-        const detectedCode = parts.length > 1 ? parts[1].toUpperCase() : '';
-        if (detectedCode) {
-          const match = fetchedCountries.find(c => c.code.toUpperCase() === detectedCode);
-          if (match) {
-            setSelectedCountryCode(match.code);
-            setSelectedCountryName(match.name);
-          }
+    // Fetch trivia fact from remote API /api/trivia
+    fetch('/api/trivia')
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.trivia) {
+          setTriviaFact(data.trivia);
         }
-      }
-    });
+        setSplashProgress(30);
+      })
+      .catch(() => {
+        // Fallback silently to offline default
+        setSplashProgress(30);
+      })
+      .finally(() => {
+        // Increment session counter
+        storageService.incrementSessionCount();
+        setSplashProgress(45);
 
-    // Fetch initial default radio stations
-    const urlParams = new URLSearchParams(window.location.search);
-    const sharedStationId = urlParams.get('stationId');
-    const importStationData = urlParams.get('import_station');
-
-    if (importStationData) {
-      try {
-        const decoded = JSON.parse(importStationData);
-        if (decoded && decoded.streamUrl && decoded.name) {
-          const newStation: RadioStation = {
-            id: `custom_${Date.now()}`,
-            name: decoded.name,
-            genre: decoded.genre || 'Imported Stream',
-            country: decoded.country || 'Global',
-            streamUrl: decoded.streamUrl,
-            imageUrl: decoded.imageUrl || 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=300&auto=format&fit=crop&q=80',
-            bitrate: decoded.bitrate || '128 kbps',
-            codec: decoded.codec || 'MP3',
-            isFavorite: true,
-            isCustom: true,
-            customTags: decoded.customTags || [],
-            lastListenedTimestamp: Date.now()
-          };
-          storageService.addCustomStation(newStation);
-          storageService.toggleFavorite(newStation);
+        // Fetch list of countries & auto-detect default country
+        apiService.getCountries().then((fetchedCountries) => {
+          setCountries(fetchedCountries);
+          setSplashProgress(65);
           
-          // Clear query params
-          window.history.replaceState({}, document.title, window.location.pathname);
-          
-          // Play and add
-          setTimeout(() => {
-            handleStationAdded(newStation);
-            alert(`Imported and playing: ${decoded.name}!`);
-          }, 600);
-        }
-      } catch (e) {
-        console.error('Failed to import station from URL:', e);
-      }
-    }
-
-    apiService.searchRadioStations({ limit: 40 }).then(async (res) => {
-      setAvailableStations(res.stations || []);
-
-      let initialStation: RadioStation | null = null;
-      let shouldAutoPlay = false;
-
-      if (sharedStationId) {
-        const customs = storageService.getCustomStations();
-        const customMatch = customs.find(c => c.id === sharedStationId);
-        if (customMatch) {
-          initialStation = customMatch;
-          shouldAutoPlay = true;
-        } else {
-          try {
-            const fetched = await apiService.getStationById(sharedStationId);
-            if (fetched) {
-              initialStation = fetched;
-              shouldAutoPlay = true;
+          // Auto-detect country/area if none selected yet
+          if (!selectedCountryName && typeof window !== 'undefined') {
+            const locale = navigator.language || (navigator.languages && navigator.languages[0]) || '';
+            const parts = locale.split(/[-_]/);
+            const detectedCode = parts.length > 1 ? parts[1].toUpperCase() : '';
+            if (detectedCode) {
+              const match = fetchedCountries.find(c => c.code.toUpperCase() === detectedCode);
+              if (match) {
+                setSelectedCountryCode(match.code);
+                setSelectedCountryName(match.name);
+              }
             }
-          } catch (e) {
-            console.error('Failed to load shared station:', e);
           }
-        }
-      }
 
-      if (!initialStation) {
-        const recents = storageService.getRecents();
-        initialStation = recents.length > 0 ? recents[0] : (res.stations && res.stations.length > 0 ? res.stations[0] : null);
-      }
-      
-      if (initialStation) {
-        if (shouldAutoPlay) {
-          audioEngine.playStation(initialStation);
-          // Clean up the URL query param without refreshing the page
-          try {
-            const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
-            window.history.replaceState({ path: newUrl }, '', newUrl);
-          } catch {}
-        } else {
-          audioEngine.setStation(initialStation);
-        }
-      }
-      setIsAudioEngineReady(true);
-    });
+          // Fetch initial default radio stations
+          const urlParams = new URLSearchParams(window.location.search);
+          const sharedStationId = urlParams.get('stationId');
+          const importStationData = urlParams.get('import_station');
+
+          if (importStationData) {
+            try {
+              const decoded = JSON.parse(importStationData);
+              if (decoded && decoded.streamUrl && decoded.name) {
+                const newStation: RadioStation = {
+                  id: `custom_${Date.now()}`,
+                  name: decoded.name,
+                  genre: decoded.genre || 'Imported Stream',
+                  country: decoded.country || 'Global',
+                  streamUrl: decoded.streamUrl,
+                  imageUrl: decoded.imageUrl || 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=300&auto=format&fit=crop&q=80',
+                  bitrate: decoded.bitrate || '128 kbps',
+                  codec: decoded.codec || 'MP3',
+                  isFavorite: true,
+                  isCustom: true,
+                  customTags: decoded.customTags || [],
+                  lastListenedTimestamp: Date.now()
+                };
+                storageService.addCustomStation(newStation);
+                storageService.toggleFavorite(newStation);
+                
+                // Clear query params
+                window.history.replaceState({}, document.title, window.location.pathname);
+                
+                // Play and add
+                setTimeout(() => {
+                  handleStationAdded(newStation);
+                  alert(`Imported and playing: ${decoded.name}!`);
+                }, 600);
+              }
+            } catch (e) {
+              console.error('Failed to import station from URL:', e);
+            }
+          }
+
+          setSplashProgress(85);
+
+          apiService.searchRadioStations({ limit: 40 }).then(async (res) => {
+            setAvailableStations(res.stations || []);
+
+            let initialStation: RadioStation | null = null;
+            let shouldAutoPlay = false;
+
+            if (sharedStationId) {
+              const customs = storageService.getCustomStations();
+              const customMatch = customs.find(c => c.id === sharedStationId);
+              if (customMatch) {
+                initialStation = customMatch;
+                shouldAutoPlay = true;
+              } else {
+                try {
+                  const fetched = await apiService.getStationById(sharedStationId);
+                  if (fetched) {
+                    initialStation = fetched;
+                    shouldAutoPlay = true;
+                  }
+                } catch (e) {
+                  console.error('Failed to load shared station:', e);
+                }
+              }
+            }
+
+            if (!initialStation) {
+              const recents = storageService.getRecents();
+              initialStation = recents.length > 0 ? recents[0] : (res.stations && res.stations.length > 0 ? res.stations[0] : null);
+            }
+            
+            if (initialStation) {
+              if (shouldAutoPlay) {
+                audioEngine.playStation(initialStation);
+                // Clean up the URL query param without refreshing the page
+                try {
+                  const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+                  window.history.replaceState({ path: newUrl }, '', newUrl);
+                } catch {}
+              } else {
+                audioEngine.setStation(initialStation);
+              }
+            }
+
+            setSplashProgress(100);
+            
+            // Allow progress bar visual to finish smoothly before rendering app
+            setTimeout(() => {
+              setIsAudioEngineReady(true);
+              setIsSplashActive(false);
+            }, 500);
+          });
+        });
+      });
 
     // Check smart engagement sentiment
     const stats = storageService.getUserStats();
@@ -666,6 +750,15 @@ export default function App() {
     setFilterConfig(updated);
     storageService.saveFilterConfig(updated);
   };
+
+  if (!isAudioEngineReady || isSplashActive) {
+    return (
+      <SplashScreen
+        progress={splashProgress}
+        trivia={triviaFact}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[var(--bg-main)] text-[var(--text-primary)] transition-colors duration-300 relative flex flex-col md:flex-row selection:bg-[var(--accent-primary)] selection:text-black overflow-x-hidden">
@@ -715,6 +808,31 @@ export default function App() {
         </div>
       )}
 
+      {/* Floating Toast Notification for Reconnecting Audio Stream */}
+      {isReconnectingToast && (
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 max-w-md w-[92%] p-3.5 rounded-2xl backdrop-blur-xl border bg-gradient-to-r from-amber-600/95 via-orange-600/95 to-amber-700/95 border-amber-300/40 text-white shadow-2xl shadow-black/80 flex items-center justify-between gap-3 animate-fadeIn">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="p-2 rounded-xl bg-black/20 text-amber-200 shrink-0">
+              <RefreshCw className="w-5 h-5 animate-spin" />
+            </div>
+            <div className="min-w-0">
+              <h4 className="text-xs font-black uppercase tracking-wider text-amber-100">
+                Reconnecting...
+              </h4>
+              <p className="text-[11px] font-medium leading-tight text-white/90">
+                Auto-retrying stream connection after network drop
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setIsReconnectingToast(false)}
+            className="p-1 rounded-lg cursor-pointer shrink-0 hover:bg-black/20 text-white/80 hover:text-white"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Top Navbar or Left Sidebar */}
       <Navbar
         currentView={currentView}
@@ -739,14 +857,6 @@ export default function App() {
       {/* Main Layout Area on the right of the sidebar on desktop */}
       <div className="flex-1 flex flex-col min-w-0 relative z-10">
         
-        {/* Dynamic Screen Orientation & Ultrawide Centering Optimal Indicator Badge */}
-        {screenConfig.isUltrawide && screenConfig.orientation === 'landscape' && (
-          <div id="ultrawide-centered-badge" className="absolute top-3 right-4 z-40 hidden lg:flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/35 text-indigo-300 text-[10px] font-bold shadow-xl backdrop-blur-md">
-            <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
-            <span>Optimal Ultrawide Mode Active</span>
-          </div>
-        )}
-
         {/* Main Content Container with Dynamic Layout Wrapper classes */}
         <main className={mainLayoutClasses}>
         {/* Firebase Firestore Quota Exceeded Banner */}
@@ -807,6 +917,10 @@ export default function App() {
             onOpenCountryPicker={() => setIsCountryPickerOpen(true)}
             selectedCountryName={selectedCountryName}
             selectedCountryCode={selectedCountryCode}
+            onSelectCountry={(name, code) => {
+              setSelectedCountryName(name);
+              setSelectedCountryCode(code);
+            }}
             onSetAlarm={handleOpenAlarmWithStation}
             onShareStation={handleOpenShareWithStation}
             onOpenAddStation={() => setIsAddStationOpen(true)}
