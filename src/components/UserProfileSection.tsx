@@ -118,8 +118,8 @@ export const UserProfileSection: React.FC<UserProfileSectionProps> = ({
     });
 
     // Fetch stats
-    firebaseService.fetchFavoritesFromCloud().then(favs => setFavCount(favs.length));
-    firebaseService.getCloudRecentStations().then(recents => setRecentCount(recents.length));
+    firebaseService.fetchFavoritesFromCloud().then(favs => setFavCount(favs ? favs.length : 0)).catch(() => setFavCount(0));
+    firebaseService.getCloudRecentStations().then(recents => setRecentCount(recents ? recents.length : 0)).catch(() => setRecentCount(0));
 
     return () => {
       unsubProfile();
@@ -151,12 +151,12 @@ export const UserProfileSection: React.FC<UserProfileSectionProps> = ({
 
       if (currentUser?.uid) {
         const cloudFavs = await firebaseService.fetchFavoritesFromCloud();
-        setFavCount(cloudFavs.length);
+        setFavCount(cloudFavs ? cloudFavs.length : 0);
         const cloudRecents = await firebaseService.getCloudRecentStations();
-        setRecentCount(cloudRecents.length);
+        setRecentCount(cloudRecents ? cloudRecents.length : 0);
       } else {
-        setFavCount(storageService.getFavorites().length);
-        setRecentCount(storageService.getRecents().length);
+        setFavCount(storageService.getFavorites()?.length || 0);
+        setRecentCount(storageService.getRecents()?.length || 0);
       }
 
       if (res.success) {

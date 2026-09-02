@@ -58,6 +58,7 @@ export default function App() {
     canPromptDirectly,
     isInstalled,
     isDismissed,
+    isSmartPromptEligible,
     platform,
     promptInstall,
     dismissInstall
@@ -578,141 +579,152 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    // Start splash loading progression
+    // Start splash loading progression with a smooth fast simulation interval
     setSplashProgress(12);
+    const progressTimer = setInterval(() => {
+      setSplashProgress((prev) => {
+        if (prev >= 90) {
+          clearInterval(progressTimer);
+          return 90;
+        }
+        return prev + 5;
+      });
+    }, 40); // Animates smoothly to 90% in ~600ms
 
-    // Fetch trivia fact from remote API /api/trivia
-    fetch('/api/trivia')
+    // 1. Fetch trivia in parallel
+    const triviaPromise = fetch('/api/trivia')
       .then(res => res.json())
       .then(data => {
         if (data && data.trivia) {
           setTriviaFact(data.trivia);
         }
-        setSplashProgress(30);
       })
       .catch(() => {
-        // Fallback silently to offline default
-        setSplashProgress(30);
-      })
-      .finally(() => {
-        // Increment session counter
-        storageService.incrementSessionCount();
-        setSplashProgress(45);
-
-        // Fetch list of countries & auto-detect default country
-        apiService.getCountries().then((fetchedCountries) => {
-          setCountries(fetchedCountries);
-          setSplashProgress(65);
-          
-          // Auto-detect country/area if none selected yet
-          if (!selectedCountryName && typeof window !== 'undefined') {
-            const locale = navigator.language || (navigator.languages && navigator.languages[0]) || '';
-            const parts = locale.split(/[-_]/);
-            const detectedCode = parts.length > 1 ? parts[1].toUpperCase() : '';
-            if (detectedCode) {
-              const match = fetchedCountries.find(c => c.code.toUpperCase() === detectedCode);
-              if (match) {
-                setSelectedCountryCode(match.code);
-                setSelectedCountryName(match.name);
-              }
-            }
-          }
-
-          // Fetch initial default radio stations
-          const urlParams = new URLSearchParams(window.location.search);
-          const sharedStationId = urlParams.get('stationId');
-          const importStationData = urlParams.get('import_station');
-
-          if (importStationData) {
-            try {
-              const decoded = JSON.parse(importStationData);
-              if (decoded && decoded.streamUrl && decoded.name) {
-                const newStation: RadioStation = {
-                  id: `custom_${Date.now()}`,
-                  name: decoded.name,
-                  genre: decoded.genre || 'Imported Stream',
-                  country: decoded.country || 'Global',
-                  streamUrl: decoded.streamUrl,
-                  imageUrl: decoded.imageUrl || 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=300&auto=format&fit=crop&q=80',
-                  bitrate: decoded.bitrate || '128 kbps',
-                  codec: decoded.codec || 'MP3',
-                  isFavorite: true,
-                  isCustom: true,
-                  customTags: decoded.customTags || [],
-                  lastListenedTimestamp: Date.now()
-                };
-                storageService.addCustomStation(newStation);
-                storageService.toggleFavorite(newStation);
-                
-                // Clear query params
-                window.history.replaceState({}, document.title, window.location.pathname);
-                
-                // Play and add
-                setTimeout(() => {
-                  handleStationAdded(newStation);
-                  alert(`Imported and playing: ${decoded.name}!`);
-                }, 600);
-              }
-            } catch (e) {
-              console.error('Failed to import station from URL:', e);
-            }
-          }
-
-          setSplashProgress(85);
-
-          apiService.searchRadioStations({ limit: 40 }).then(async (res) => {
-            setAvailableStations(res.stations || []);
-
-            let initialStation: RadioStation | null = null;
-            let shouldAutoPlay = false;
-
-            if (sharedStationId) {
-              const customs = storageService.getCustomStations();
-              const customMatch = customs.find(c => c.id === sharedStationId);
-              if (customMatch) {
-                initialStation = customMatch;
-                shouldAutoPlay = true;
-              } else {
-                try {
-                  const fetched = await apiService.getStationById(sharedStationId);
-                  if (fetched) {
-                    initialStation = fetched;
-                    shouldAutoPlay = true;
-                  }
-                } catch (e) {
-                  console.error('Failed to load shared station:', e);
-                }
-              }
-            }
-
-            if (!initialStation) {
-              const recents = storageService.getRecents();
-              initialStation = recents.length > 0 ? recents[0] : (res.stations && res.stations.length > 0 ? res.stations[0] : null);
-            }
-            
-            if (initialStation) {
-              if (shouldAutoPlay) {
-                audioEngine.playStation(initialStation);
-                // Clean up the URL query param without refreshing the page
-                try {
-                  const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
-                  window.history.replaceState({ path: newUrl }, '', newUrl);
-                } catch {}
-              } else {
-                audioEngine.setStation(initialStation);
-              }
-            }
-
-            setSplashProgress(100);
-            
-            // Allow progress bar visual to finish smoothly before rendering app
-            setTimeout(() => {
-              setIsAudioEngineReady(true);
-              setIsSplashActive(false);
-            }, 500);
-          });
-        });
+        // Fallback silently
       });
+
+    // Increment session counter
+    storageService.incrementSessionCount();
+
+    // 2. Fetch list of countries in parallel
+    const countriesPromise = apiService.getCountries().then((fetchedCountries) => {
+      setCountries(fetchedCountries);
+      
+      // Auto-detect country/area if none selected yet
+      if (!selectedCountryName && typeof window !== 'undefined') {
+        const locale = navigator.language || (navigator.languages && navigator.languages[0]) || '';
+        const parts = locale.split(/[-_]/);
+        const detectedCode = parts.length > 1 ? parts[1].toUpperCase() : '';
+        if (detectedCode) {
+          const match = fetchedCountries.find(c => c.code.toUpperCase() === detectedCode);
+          if (match) {
+            setSelectedCountryCode(match.code);
+            setSelectedCountryName(match.name);
+          }
+        }
+      }
+    });
+
+    // 3. Fetch initial stations & handle deep linking
+    const stationsPromise = apiService.searchRadioStations({ limit: 40 }).then(async (res) => {
+      setAvailableStations(res.stations || []);
+
+      const urlParams = new URLSearchParams(window.location.search);
+      const sharedStationId = urlParams.get('stationId');
+      const importStationData = urlParams.get('import_station');
+
+      if (importStationData) {
+        try {
+          const decoded = JSON.parse(importStationData);
+          if (decoded && decoded.streamUrl && decoded.name) {
+            const newStation: RadioStation = {
+              id: `custom_${Date.now()}`,
+              name: decoded.name,
+              genre: decoded.genre || 'Imported Stream',
+              country: decoded.country || 'Global',
+              streamUrl: decoded.streamUrl,
+              imageUrl: decoded.imageUrl || 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=300&auto=format&fit=crop&q=80',
+              bitrate: decoded.bitrate || '128 kbps',
+              codec: decoded.codec || 'MP3',
+              isFavorite: true,
+              isCustom: true,
+              customTags: decoded.customTags || [],
+              lastListenedTimestamp: Date.now()
+            };
+            storageService.addCustomStation(newStation);
+            storageService.toggleFavorite(newStation);
+            
+            // Clear query params
+            window.history.replaceState({}, document.title, window.location.pathname);
+            
+            // Play and add
+            setTimeout(() => {
+              handleStationAdded(newStation);
+              alert(`Imported and playing: ${decoded.name}!`);
+            }, 600);
+          }
+        } catch (e) {
+          console.error('Failed to import station from URL:', e);
+        }
+      }
+
+      let initialStation: RadioStation | null = null;
+      let shouldAutoPlay = false;
+
+      if (sharedStationId) {
+        const customs = storageService.getCustomStations();
+        const customMatch = customs.find(c => c.id === sharedStationId);
+        if (customMatch) {
+          initialStation = customMatch;
+          shouldAutoPlay = true;
+        } else {
+          try {
+            const fetched = await apiService.getStationById(sharedStationId);
+            if (fetched) {
+              initialStation = fetched;
+              shouldAutoPlay = true;
+            }
+          } catch (e) {
+            console.error('Failed to load shared station:', e);
+          }
+        }
+      }
+
+      if (!initialStation) {
+        const recents = storageService.getRecents();
+        initialStation = recents.length > 0 ? recents[0] : (res.stations && res.stations.length > 0 ? res.stations[0] : null);
+      }
+      
+      if (initialStation) {
+        if (shouldAutoPlay) {
+          audioEngine.playStation(initialStation);
+          // Clean up the URL query param without refreshing the page
+          try {
+            const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+            window.history.replaceState({ path: newUrl }, '', newUrl);
+          } catch {}
+        } else {
+          audioEngine.setStation(initialStation);
+        }
+      }
+    });
+
+    // Complete loader instantly when all resources are retrieved
+    Promise.all([triviaPromise, countriesPromise, stationsPromise]).then(() => {
+      clearInterval(progressTimer);
+      setSplashProgress(100);
+      
+      // Fast, smooth dismiss transition
+      setTimeout(() => {
+        setIsAudioEngineReady(true);
+        setIsSplashActive(false);
+      }, 150);
+    }).catch(() => {
+      // Emergency recovery to prevent stuck loader
+      clearInterval(progressTimer);
+      setIsAudioEngineReady(true);
+      setIsSplashActive(false);
+    });
 
     // Check smart engagement sentiment
     const stats = storageService.getUserStats();
@@ -721,6 +733,10 @@ export default function App() {
         setIsRateOpen(true);
       }, 5000);
     }
+
+    return () => {
+      clearInterval(progressTimer);
+    };
   }, []);
 
   const handleSelectTheme = (newTheme: ThemeType) => {
@@ -991,7 +1007,7 @@ export default function App() {
       )}
 
       {/* Contextual PWA Install Prompt Banner */}
-      {!isInstalled && !isDismissed && (
+      {!isInstalled && !isDismissed && isSmartPromptEligible && (
         <PWAInstallBanner
           platform={platform}
           canPromptDirectly={canPromptDirectly}

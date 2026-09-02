@@ -53,10 +53,12 @@ class IndexedDBService {
 
         request.onerror = (err) => {
           console.warn('Failed to open IndexedDB:', err);
+          this.dbPromise = null;
           resolve(null);
         };
       } catch (e) {
         console.warn('Error opening IndexedDB:', e);
+        this.dbPromise = null;
         resolve(null);
       }
     });

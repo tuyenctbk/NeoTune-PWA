@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { storageService } from '../services/storageService';
 
 export type DevicePlatform = 'ios' | 'android' | 'pc' | 'tv';
 
@@ -14,6 +15,7 @@ export function usePWAInstall() {
   const [isInstalled, setIsInstalled] = useState<boolean>(false);
   const [isDismissed, setIsDismissed] = useState<boolean>(false);
   const [platform, setPlatform] = useState<DevicePlatform>('pc');
+  const [isSmartPromptEligible, setIsSmartPromptEligible] = useState<boolean>(false);
 
   // Detect platform & standalone mode
   useEffect(() => {
@@ -130,11 +132,53 @@ export function usePWAInstall() {
     setIsDismissed(true);
   }, []);
 
+  // Calculate smart engagement milestones for PWA prompt
+  useEffect(() => {
+    const checkSmartEligibility = () => {
+      try {
+        const stats = storageService.getUserStats();
+        
+        // Smart conditions:
+        const hasEnoughSessions = stats.sessionCount >= 2;
+        const hasListenedEnough = stats.totalListeningTimeSec >= 40;
+        const hasAddedFavorites = stats.favoritesAddedCount >= 1;
+        const hasSpentEnoughTime = Date.now() - stats.firstLaunchTimestamp >= 120000; // 2 mins
+
+        // Eligible if they have shown genuine interest through any key action or milestone
+        setIsSmartPromptEligible(
+          hasEnoughSessions || 
+          hasListenedEnough || 
+          hasAddedFavorites || 
+          hasSpentEnoughTime
+        );
+      } catch (e) {
+        setIsSmartPromptEligible(false);
+      }
+    };
+
+    // Run check immediately
+    checkSmartEligibility();
+
+    // Check periodically in the background (e.g. as listening time builds up)
+    const interval = setInterval(checkSmartEligibility, 8000);
+
+    // Subscribe to favorites additions to trigger instantly
+    const unsubFavs = storageService.subscribe(() => {
+      checkSmartEligibility();
+    });
+
+    return () => {
+      clearInterval(interval);
+      unsubFavs();
+    };
+  }, []);
+
   return {
     deferredPrompt,
     canPromptDirectly: Boolean(deferredPrompt),
     isInstalled,
     isDismissed,
+    isSmartPromptEligible,
     platform,
     promptInstall,
     dismissInstall,

@@ -53,6 +53,8 @@ self.addEventListener('fetch', (event) => {
 
   // Never intercept or cache live radio audio streams, podcasts, or backend API endpoints
   if (
+    request.destination === 'audio' ||
+    request.destination === 'video' ||
     url.pathname.startsWith('/api/') ||
     request.headers.get('accept')?.includes('audio') ||
     url.pathname.endsWith('.mp3') ||

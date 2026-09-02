@@ -226,6 +226,7 @@ class AudioEngine {
   private preampGainNode: GainNode | null = null;
   private webAudioInitialized = false;
   private preCachedAudios: Map<string, HTMLAudioElement> = new Map();
+  private customBackupAudio: HTMLAudioElement | null = null;
   private activePlayPromise: Promise<void> | null = null;
 
   // Rewind Audio Cache Fields
@@ -601,8 +602,25 @@ class AudioEngine {
   private setupUserGestureUnlock() {
     if (typeof window === 'undefined') return;
     const unlock = () => {
-      if (this.audioCtx && this.audioCtx.state === 'suspended') {
-        this.audioCtx.resume().catch(() => {});
+      // 1. Initialize Web Audio if not done yet
+      if (!this.webAudioInitialized) {
+        this.initWebAudio();
+      }
+      // 2. Resume AudioContext if suspended
+      if (this.audioCtx) {
+        if (this.audioCtx.state === 'suspended') {
+          this.audioCtx.resume().then(() => {
+            diagnosticsService.log('info', 'audio_context', 'AudioContext state resumed via user gesture unlock');
+          }).catch(() => {});
+        }
+        // 3. Play silent 0.001s buffer to unlock Web Audio hardware pipeline on iOS/Android PWA standalone mode
+        try {
+          const silentBuf = this.audioCtx.createBuffer(1, 1, 22050);
+          const silentSource = this.audioCtx.createBufferSource();
+          silentSource.buffer = silentBuf;
+          silentSource.connect(this.audioCtx.destination);
+          silentSource.start(0);
+        } catch {}
       }
     };
     window.addEventListener('pointerdown', unlock, { passive: true });
@@ -852,7 +870,11 @@ class AudioEngine {
         const bufferSize = 4096;
         this.scriptNode = this.audioCtx.createScriptProcessor(bufferSize, 2, 2);
         this.analyserNode.connect(this.scriptNode);
-        this.scriptNode.connect(this.audioCtx.destination);
+        // Connect to a silent sink gain node so ScriptProcessor continues running without duplicating speaker output
+        const silentSink = this.audioCtx.createGain();
+        silentSink.gain.value = 0;
+        this.scriptNode.connect(silentSink);
+        silentSink.connect(this.audioCtx.destination);
 
         this.scriptNode.onaudioprocess = (e) => {
           if (!this.isPlaying || this.isRewinding) return;
@@ -1425,72 +1447,22 @@ class AudioEngine {
     storageService.addRecent(station);
     firebaseService.addRecentStationToCloud(station).catch(() => {});
 
-    // 1. Check if we have a pre-cached audio connection for this station
+    // 1. Check if we have a pre-cached probe for this station and clean it up
     const cachedAudio = this.preCachedAudios.get(station.id);
     if (cachedAudio) {
-      console.log(`[AudioEngine] Promoting pre-cached audio connection for: ${station.name}`);
       try {
-        if (this.hls) {
-          this.hls.destroy();
-          this.hls = null;
-        }
-        this.audio.pause();
-        this.audio.src = '';
-        this.audio.load();
+        cachedAudio.pause();
+        cachedAudio.src = '';
+        cachedAudio.load();
       } catch {}
-
-      this.audio = cachedAudio;
-      this.audio.muted = false;
-      this.audio.volume = this.isCrossfading ? 0 : (this.isMuted ? 0 : Math.max(0.05, this.volume));
       this.preCachedAudios.delete(station.id);
-      
-      this.setupAudioListeners();
-
-      // Re-setup Web Audio source node and routing
-      if (this.audioCtx && this.webAudioInitialized) {
-        try {
-          if (this.sourceNode) {
-            this.sourceNode.disconnect();
-          }
-        } catch {}
-        try {
-          this.sourceNode = this.audioCtx.createMediaElementSource(this.audio);
-          let prevNode: AudioNode = this.sourceNode;
-          for (const filter of this.eqFilters) {
-            prevNode.connect(filter);
-            prevNode = filter;
-          }
-          prevNode.connect(this.normalizeGainNode!);
-        } catch (e) {
-          console.warn('Failed to reconnect promoted source node:', e);
-        }
-      }
-
-      try {
-        await this.clearActivePlayPromise();
-        const p = this.audio.play();
-        this.activePlayPromise = p;
-        await p;
-        this.updateMediaSessionMetadata(station.name, station.genre, station.imageUrl);
-        diagnosticsService.log('success', 'stream', `Instant playback from pre-cached connection for ${station.name}`);
-        
-        // Trigger background pre-caching update for the next stations
-        setTimeout(() => this.updatePreCache(), 1000);
-        return; // Success! Return early
-      } catch (err: any) {
-        if (err?.name === 'AbortError' || err?.message?.includes('aborted') || err?.message?.includes('interrupted')) {
-          console.log('[AudioEngine] Promoted play request was intentionally aborted/paused.');
-          return;
-        }
-        console.warn('Promoted audio play failed, falling back to standard loading:', err);
-      }
     }
 
     try {
       this.audio.muted = false;
       this.audio.volume = this.isCrossfading ? 0 : (this.isMuted ? 0 : Math.max(0.05, this.volume));
 
-      // Route stream through CORS-compliant Proxy Relay for Mobile Chrome & HTTPS environments
+      // Route stream through CORS-compliant Proxy Relay for Mobile Chrome, Tablet PWA & HTTPS environments
       let targetUrl = station.streamUrl;
       const isHls = station.streamUrl.toLowerCase().includes('.m3u8');
       const isCapacitor = typeof window !== 'undefined' && (
@@ -1499,15 +1471,29 @@ class AudioEngine {
         (window.location.hostname === 'localhost' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent))
       );
       const isDataSaverActive = this.dataSaverBitrate !== 'auto';
+      const isHttpsPage = typeof window !== 'undefined' && window.location.protocol === 'https:';
+      const isHttpStream = station.streamUrl.toLowerCase().startsWith('http://');
 
-      // Native Capacitor apps or HLS streams load direct stream URLs natively
-      if (isCapacitor || isHls || targetUrl.startsWith('https://')) {
+      // Native Capacitor apps load direct stream URLs natively.
+      // In PWA/Web over HTTPS, http:// streams MUST be proxied to prevent browser mixed-content block.
+      if (isCapacitor) {
         targetUrl = station.streamUrl;
+      } else if (isHttpsPage && isHttpStream) {
+        targetUrl = `/api/stream/proxy?url=${encodeURIComponent(station.streamUrl)}`;
+        if (isDataSaverActive) {
+          targetUrl += `&maxBitrate=${this.dataSaverBitrate}`;
+        }
+        diagnosticsService.log('info', 'stream', 'PWA Standalone: HTTP stream proxied over HTTPS to avoid Mixed Content blocking', undefined, targetUrl);
       } else if (isDataSaverActive) {
         targetUrl = `/api/stream/proxy?url=${encodeURIComponent(station.streamUrl)}&maxBitrate=${this.dataSaverBitrate}`;
         diagnosticsService.log('info', 'stream', `Data Saver active (${this.dataSaverBitrate}kbps cap): routing via bitrate limited relay`, undefined, targetUrl);
       } else {
         targetUrl = station.streamUrl;
+      }
+
+      // Ensure AudioContext is resumed before play call on tablet
+      if (this.audioCtx && this.audioCtx.state === 'suspended') {
+        try { await this.audioCtx.resume(); } catch {}
       }
 
       await this.clearActivePlayPromise();
@@ -1537,6 +1523,11 @@ class AudioEngine {
         this.loadStreamSource(proxyUrl);
         this.audio.muted = false;
         this.audio.volume = this.isMuted ? 0 : Math.max(0.05, this.volume);
+        
+        if (this.audioCtx && this.audioCtx.state === 'suspended') {
+          try { await this.audioCtx.resume(); } catch {}
+        }
+        
         const p = this.audio.play();
         this.activePlayPromise = p;
         await p;
@@ -2330,11 +2321,10 @@ class AudioEngine {
       const customSound = storageService.getCustomWakeSound();
       if (customSound && customSound.url) {
         try {
-          const customAudio = new Audio(customSound.url);
-          customAudio.volume = vol;
-          customAudio.loop = true;
-          customAudio.play().catch(e => console.warn('Custom wake sound playback error:', e));
-          this.preCachedAudios.set('custom_backup_audio', customAudio);
+          this.customBackupAudio = new Audio(customSound.url);
+          this.customBackupAudio.volume = vol;
+          this.customBackupAudio.loop = true;
+          this.customBackupAudio.play().catch(e => console.warn('Custom wake sound playback error:', e));
           return;
         } catch (e) {
           console.warn('Custom wake audio play error:', e);
@@ -2431,13 +2421,13 @@ class AudioEngine {
   }
 
   public stopBackupSynthSound(): void {
-    const customAudio = this.preCachedAudios.get('custom_backup_audio');
-    if (customAudio) {
+    if (this.customBackupAudio) {
       try {
-        customAudio.pause();
-        customAudio.currentTime = 0;
+        this.customBackupAudio.pause();
+        this.customBackupAudio.src = '';
+        this.customBackupAudio.load();
       } catch {}
-      this.preCachedAudios.delete('custom_backup_audio');
+      this.customBackupAudio = null;
     }
 
     if (this.backupSynthInterval) {
