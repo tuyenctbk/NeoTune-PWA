@@ -1,44 +1,46 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <defs>
-    <!-- Background Dark Obsidian Violet Gradient -->
-    <radialGradient id="icon512Bg" cx="50%" cy="25%" r="75%">
-      <stop offset="0%" stop-color="#230E3D"/>
-      <stop offset="60%" stop-color="#110521"/>
-      <stop offset="100%" stop-color="#07020E"/>
+    <radialGradient id="icon512Bg" cx="50%" cy="20%" r="80%">
+      <stop offset="0%" stop-color="#280F4A"/>
+      <stop offset="55%" stop-color="#120524"/>
+      <stop offset="100%" stop-color="#06020D"/>
     </radialGradient>
 
-    <!-- Vibrant Radio Wave Gradient (Cyan -> Violet -> Magenta) -->
     <linearGradient id="icon512Wave" x1="0%" y1="0%" x2="100%" y2="0%">
       <stop offset="0%" stop-color="#00F0FF"/>
-      <stop offset="50%" stop-color="#A855F7"/>
+      <stop offset="45%" stop-color="#A855F7"/>
       <stop offset="100%" stop-color="#EC4899"/>
     </linearGradient>
 
-    <!-- Vibrant Equalizer Bar Gradient (Violet -> Magenta -> Rose) -->
     <linearGradient id="icon512Bar" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#C084FC"/>
-      <stop offset="50%" stop-color="#E879F9"/>
+      <stop offset="0%" stop-color="#38BDF8"/>
+      <stop offset="35%" stop-color="#C084FC"/>
+      <stop offset="70%" stop-color="#E879F9"/>
       <stop offset="100%" stop-color="#F43F5E"/>
     </linearGradient>
+
+    <filter id="icon512Glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="10" flood-color="#00F0FF" flood-opacity="0.45"/>
+    </filter>
   </defs>
 
   <!-- Squircle Base Canvas -->
-  <rect width="512" height="512" rx="116" fill="url(#icon512Bg)"/>
-  <rect width="504" height="504" x="4" y="4" rx="112" fill="none" stroke="url(#icon512Wave)" stroke-width="5" opacity="0.35"/>
+  <rect width="512" height="512" rx="122" fill="url(#icon512Bg)"/>
+  <rect width="504" height="504" x="4" y="4" rx="118" fill="none" stroke="url(#icon512Wave)" stroke-width="6" opacity="0.4"/>
 
   <!-- Radio Waves (Concentric Arches) -->
-  <path d="M 96 240 A 160 160 0 0 1 416 240" fill="none" stroke="url(#icon512Wave)" stroke-width="24" stroke-linecap="round" opacity="0.85"/>
-  <path d="M 142 240 A 114 114 0 0 1 370 240" fill="none" stroke="url(#icon512Wave)" stroke-width="24" stroke-linecap="round"/>
+  <path d="M 96 236 A 160 160 0 0 1 416 236" fill="none" stroke="url(#icon512Wave)" stroke-width="22" stroke-linecap="round" opacity="0.85" filter="url(#icon512Glow)"/>
+  <path d="M 140 236 A 116 116 0 0 1 372 236" fill="none" stroke="url(#icon512Wave)" stroke-width="22" stroke-linecap="round"/>
 
-  <!-- 3 Equalizer Pillar Bars -->
-  <!-- Left Bar -->
-  <rect x="176" y="260" width="35" height="130" rx="17.5" fill="url(#icon512Bar)"/>
-  <!-- Center Tall Bar -->
-  <rect x="238.5" y="205" width="35" height="185" rx="17.5" fill="url(#icon512Bar)"/>
-  <!-- Right Bar -->
-  <rect x="301" y="260" width="35" height="130" rx="17.5" fill="url(#icon512Bar)"/>
+  <!-- 5 Equalizer Pillar Bars -->
+  <rect x="140" y="295" width="28" height="92" rx="14" fill="url(#icon512Bar)"/>
+  <rect x="190" y="258" width="28" height="129" rx="14" fill="url(#icon512Bar)"/>
+  <rect x="242" y="210" width="28" height="177" rx="14" fill="url(#icon512Bar)"/>
+  <rect x="294" y="258" width="28" height="129" rx="14" fill="url(#icon512Bar)"/>
+  <rect x="344" y="295" width="28" height="92" rx="14" fill="url(#icon512Bar)"/>
 
   <!-- Glowing Transmitter Beacon Dot at Apex -->
-  <circle cx="256" cy="126" r="22" fill="#00F0FF"/>
-  <circle cx="256" cy="126" r="11" fill="#FFFFFF"/>
+  <circle cx="256" cy="122" r="26" fill="#00F0FF" opacity="0.35"/>
+  <circle cx="256" cy="122" r="20" fill="#00F0FF"/>
+  <circle cx="256" cy="122" r="10" fill="#FFFFFF"/>
 </svg>

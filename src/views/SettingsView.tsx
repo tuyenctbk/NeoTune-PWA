@@ -964,6 +964,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 key={theme.id}
                 onClick={() => {
                   triggerHaptic('light');
+                  if (autoDetectTheme) {
+                    setAutoDetectTheme(false);
+                    storageService.setAutoDetectTheme(false);
+                  }
+                  if (timeBasedTheme) {
+                    setTimeBasedThemeState(false);
+                    storageService.setTimeBasedTheme(false);
+                  }
                   setPreviewTheme(theme.id);
                   onSelectTheme(theme.id);
                 }}

@@ -27,6 +27,17 @@ function getGeminiClient(): GoogleGenAI | null {
 
 app.use(express.json());
 
+// Universal CORS & Preflight handler for API endpoints
+app.use('/api', (req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range, Authorization, Accept, Icy-MetaData');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204);
+  }
+  next();
+});
+
 // List of Radio-Browser DNS mirrors for auto-healing and rotation
 const RADIO_BROWSER_MIRRORS = [
   'https://all.api.radio-browser.info/json',

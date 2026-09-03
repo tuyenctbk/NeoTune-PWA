@@ -56,56 +56,65 @@ export const NeoTuneLogo: React.FC<NeoTuneLogoProps> = ({
           </defs>
 
           {/* Squircle Dark Obsidian Canvas */}
-          <rect width="192" height="192" rx="44" fill={`url(#${bgId})`} />
+          <rect width="192" height="192" rx="46" fill={`url(#${bgId})`} />
 
           {/* Inner Accent Specular Border */}
-          <rect width="188" height="188" x="2" y="2" rx="42" fill="none" stroke={`url(#${waveId})`} strokeWidth="2" opacity="0.35" />
+          <rect width="188" height="188" x="2" y="2" rx="44" fill="none" stroke={`url(#${waveId})`} strokeWidth="2" opacity="0.4" />
 
           {/* Radio Waves (Concentric Arches) */}
           <path 
-            d="M 36 90 A 60 60 0 0 1 156 90" 
+            d="M 36 88 A 60 60 0 0 1 156 88" 
             fill="none" 
             stroke={`url(#${waveId})`} 
-            strokeWidth="9" 
+            strokeWidth="8" 
             strokeLinecap="round" 
             opacity={isPlaying ? '0.95' : '0.85'}
             className={isPlaying ? 'animate-pulse' : ''}
           />
           <path 
-            d="M 53 90 A 43 43 0 0 1 139 90" 
+            d="M 52 88 A 44 44 0 0 1 140 88" 
             fill="none" 
             stroke={`url(#${waveId})`} 
-            strokeWidth="9" 
+            strokeWidth="8" 
             strokeLinecap="round" 
           />
 
-          {/* 3 Equalizer Pillar Bars */}
-          {/* Left Bar */}
+          {/* 5 Equalizer Pillar Bars */}
           <rect 
-            x="66" y="98" width="13" height="49" rx="6.5" 
+            x="52" y="110" width="11" height="34" rx="5.5" 
+            fill={`url(#${barId})`} 
+            className={isPlaying ? 'animate-bounce' : ''}
+            style={{ animationDuration: '1.2s', animationDelay: '100ms' }}
+          />
+          <rect 
+            x="71" y="96" width="11" height="48" rx="5.5" 
+            fill={`url(#${barId})`} 
+            className={isPlaying ? 'animate-bounce' : ''}
+            style={{ animationDuration: '1.2s', animationDelay: '250ms' }}
+          />
+          <rect 
+            x="90.5" y="78" width="11" height="66" rx="5.5" 
             fill={`url(#${barId})`} 
             className={isPlaying ? 'animate-bounce' : ''}
             style={{ animationDuration: '1.2s', animationDelay: '0ms' }}
           />
-          {/* Center Tall Bar */}
           <rect 
-            x="89.5" y="77" width="13" height="70" rx="6.5" 
+            x="110" y="96" width="11" height="48" rx="5.5" 
+            fill={`url(#${barId})`} 
+            className={isPlaying ? 'animate-bounce' : ''}
+            style={{ animationDuration: '1.2s', animationDelay: '350ms' }}
+          />
+          <rect 
+            x="129" y="110" width="11" height="34" rx="5.5" 
             fill={`url(#${barId})`} 
             className={isPlaying ? 'animate-bounce' : ''}
             style={{ animationDuration: '1.2s', animationDelay: '200ms' }}
           />
-          {/* Right Bar */}
-          <rect 
-            x="113" y="98" width="13" height="49" rx="6.5" 
-            fill={`url(#${barId})`} 
-            className={isPlaying ? 'animate-bounce' : ''}
-            style={{ animationDuration: '1.2s', animationDelay: '400ms' }}
-          />
 
           {/* Glowing Transmitter Beacon Dot at Apex */}
-          <circle cx="96" cy="47" r="8" fill="#00F0FF" className={isPlaying ? 'animate-ping' : ''} style={{ animationDuration: '2.5s', transformOrigin: '96px 47px' }} />
-          <circle cx="96" cy="47" r="8" fill="#00F0FF" />
-          <circle cx="96" cy="47" r="4" fill="#FFFFFF" />
+          <circle cx="96" cy="46" r="10" fill="#00F0FF" className={isPlaying ? 'animate-ping' : ''} style={{ animationDuration: '2.5s', transformOrigin: '96px 46px' }} opacity="0.4" />
+          <circle cx="96" cy="46" r="7.5" fill="#00F0FF" />
+          <circle cx="96" cy="46" r="3.75" fill="#FFFFFF" />
         </svg>
       </div>
 
