@@ -18,6 +18,29 @@ export interface RadioStation {
   dateAdded?: number;
 }
 
+export interface PodcastChapter {
+  id: string;
+  startTimeSec: number;
+  title: string;
+  imageUrl?: string;
+  url?: string;
+}
+
+export interface LyricsLine {
+  timeSec: number;
+  text: string;
+}
+
+export interface SyncedLyricsResult {
+  source?: string;
+  trackName?: string;
+  artistName?: string;
+  albumName?: string;
+  syncedLyrics?: string | null;
+  plainLyrics?: string | null;
+  parsedLines?: LyricsLine[];
+}
+
 export interface PodcastEpisode {
   id: string;
   showId: string;
@@ -27,6 +50,10 @@ export interface PodcastEpisode {
   pubDate: string;
   durationMs: number;
   artworkUrl?: string;
+  chaptersUrl?: string;
+  transcriptUrl?: string;
+  transcriptType?: string;
+  chapters?: PodcastChapter[];
 }
 
 export interface ListenLaterItem {

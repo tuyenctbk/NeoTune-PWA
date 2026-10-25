@@ -943,6 +943,15 @@ app.get('/api/podcast/rss', async (req, res) => {
       const artMatch = itemXml.match(/<itunes:image[^>]+href=["']([^"']+)["']/i);
       const artworkUrl = artMatch ? artMatch[1] : '';
 
+      // Podcasting 2.0: Chapters URL & Transcripts
+      const chaptersMatch = itemXml.match(/<podcast:chapters[^>]+url=["']([^"']+)["']/i);
+      const chaptersUrl = chaptersMatch ? chaptersMatch[1] : '';
+
+      const transcriptMatch = itemXml.match(/<podcast:transcript[^>]+url=["']([^"']+)["']/i);
+      const transcriptUrl = transcriptMatch ? transcriptMatch[1] : '';
+      const transcriptTypeMatch = itemXml.match(/<podcast:transcript[^>]+type=["']([^"']+)["']/i);
+      const transcriptType = transcriptTypeMatch ? transcriptTypeMatch[1] : 'text/vtt';
+
       items.push({
         id: `ep_${showId || 'feed'}_${index}_${Math.abs(audioUrl.split('').reduce((a, b) => ((a << 5) - a) + b.charCodeAt(0), 0))}`,
         showId: String(showId),
@@ -951,7 +960,10 @@ app.get('/api/podcast/rss', async (req, res) => {
         audioUrl,
         pubDate,
         durationMs: durationMs || 1800000,
-        artworkUrl
+        artworkUrl,
+        chaptersUrl,
+        transcriptUrl,
+        transcriptType
       });
 
       index++;
@@ -962,6 +974,168 @@ app.get('/api/podcast/rss', async (req, res) => {
     console.error('RSS parse error:', err.message);
     res.status(500).json({ error: 'Failed to parse RSS feed', message: err.message });
   }
+});
+
+// 5.5 Podcasting 2.0 Chapters Parser Endpoint
+app.get('/api/podcast/chapters', async (req, res) => {
+  const { url } = req.query;
+  if (!url || typeof url !== 'string') {
+    return res.status(400).json({ error: 'Chapters URL parameter required' });
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const response = await fetch(url, {
+      headers: { 'User-Agent': 'NeoTune/3.2.0 (Podcast Chapters Parser)' },
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+
+    if (response.ok) {
+      const data = await response.json();
+      if (data && Array.isArray(data.chapters)) {
+        const chapters = data.chapters.map((ch: any, idx: number) => ({
+          id: `ch_${idx}`,
+          startTimeSec: typeof ch.startTime === 'number' ? ch.startTime : parseFloat(ch.startTime || 0),
+          title: ch.title || `Chapter ${idx + 1}`,
+          imageUrl: ch.img || ch.image || '',
+          url: ch.url || ''
+        }));
+        return res.json({ chapters });
+      }
+    }
+  } catch (e: any) {
+    console.warn('Chapters fetch/parse error:', e.message);
+  }
+
+  res.json({ chapters: [] });
+});
+
+// 5.8 LRCLIB API Gateway for Free Synced Lyrics & Transcripts
+app.get('/api/lyrics/synced', async (req, res) => {
+  const { track_name = '', artist_name = '', album_name = '', duration } = req.query;
+  const track = String(track_name).trim();
+  const artist = String(artist_name).trim();
+
+  if (!track) {
+    return res.status(400).json({ error: 'track_name query parameter required' });
+  }
+
+  try {
+    const queryParams = new URLSearchParams();
+    queryParams.set('track_name', track);
+    if (artist) queryParams.set('artist_name', artist);
+    if (album_name) queryParams.set('album_name', String(album_name));
+    if (duration) queryParams.set('duration', String(duration));
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4500);
+
+    // LRCLIB Get Direct Match
+    const getUrl = `https://lrclib.net/api/get?${queryParams.toString()}`;
+    let response = await fetch(getUrl, {
+      headers: { 'User-Agent': 'NeoTune/3.2.0 (https://github.com/aistudio)' },
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+
+    if (response.ok) {
+      const data = await response.json();
+      if (data && (data.syncedLyrics || data.plainLyrics)) {
+        return res.json({
+          source: 'lrclib_exact',
+          id: data.id,
+          trackName: data.trackName,
+          artistName: data.artistName,
+          albumName: data.albumName,
+          syncedLyrics: data.syncedLyrics || null,
+          plainLyrics: data.plainLyrics || null
+        });
+      }
+    }
+
+    // LRCLIB Search Fallback if direct match is null
+    const searchController = new AbortController();
+    const searchTimeout = setTimeout(() => searchController.abort(), 4500);
+    const searchUrl = `https://lrclib.net/api/search?q=${encodeURIComponent(`${artist} ${track}`.trim())}`;
+    response = await fetch(searchUrl, {
+      headers: { 'User-Agent': 'NeoTune/3.2.0' },
+      signal: searchController.signal
+    });
+    clearTimeout(searchTimeout);
+
+    if (response.ok) {
+      const searchResults = await response.json();
+      if (Array.isArray(searchResults) && searchResults.length > 0) {
+        const best = searchResults.find((item: any) => item.syncedLyrics) || searchResults[0];
+        return res.json({
+          source: 'lrclib_search',
+          id: best.id,
+          trackName: best.trackName,
+          artistName: best.artistName,
+          albumName: best.albumName,
+          syncedLyrics: best.syncedLyrics || null,
+          plainLyrics: best.plainLyrics || null
+        });
+      }
+    }
+  } catch (err: any) {
+    console.warn('LRCLIB lyrics query error:', err.message);
+  }
+
+  return res.json({
+    source: 'none',
+    syncedLyrics: null,
+    plainLyrics: null,
+    message: 'No synced lyrics found for this track.'
+  });
+});
+
+// 5.9 High-Res Visualizer Backdrop & Fanart Art Endpoint
+app.get('/api/backdrop/search', async (req, res) => {
+  const { query = 'music studio', genre = '' } = req.query;
+  const q = String(query).trim();
+  const g = String(genre).trim().toLowerCase();
+
+  // Selected High-Res Unsplash 4K/HD audio soundscape images
+  const curatedBackdrops: Record<string, string[]> = {
+    ambient: [
+      'https://images.unsplash.com/photo-1518495973542-4542c06a5843?w=1920&auto=format&fit=crop&q=85',
+      'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=1920&auto=format&fit=crop&q=85',
+      'https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=1920&auto=format&fit=crop&q=85'
+    ],
+    jazz: [
+      'https://images.unsplash.com/photo-1511192336575-5a79af67a629?w=1920&auto=format&fit=crop&q=85',
+      'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=1920&auto=format&fit=crop&q=85'
+    ],
+    rock: [
+      'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=1920&auto=format&fit=crop&q=85',
+      'https://images.unsplash.com/photo-1498038432885-c6f3f1b912ee?w=1920&auto=format&fit=crop&q=85'
+    ],
+    electronic: [
+      'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=1920&auto=format&fit=crop&q=85',
+      'https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=1920&auto=format&fit=crop&q=85'
+    ],
+    news: [
+      'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=1920&auto=format&fit=crop&q=85'
+    ],
+    default: [
+      'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=1920&auto=format&fit=crop&q=85',
+      'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=1920&auto=format&fit=crop&q=85',
+      'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=1920&auto=format&fit=crop&q=85'
+    ]
+  };
+
+  let pool = curatedBackdrops.default;
+  if (g.includes('ambient') || g.includes('chill') || g.includes('lofi')) pool = curatedBackdrops.ambient;
+  else if (g.includes('jazz') || g.includes('blues')) pool = curatedBackdrops.jazz;
+  else if (g.includes('rock') || g.includes('metal') || g.includes('indie')) pool = curatedBackdrops.rock;
+  else if (g.includes('dance') || g.includes('house') || g.includes('synth') || g.includes('electronic')) pool = curatedBackdrops.electronic;
+  else if (g.includes('news') || g.includes('talk')) pool = curatedBackdrops.news;
+
+  const backdropUrl = pool[Math.floor(Math.random() * pool.length)];
+  res.json({ query: q, genre: g, backdropUrl });
 });
 
 // 6. Stream URL Resolver & Format Inspector

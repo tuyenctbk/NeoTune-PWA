@@ -1,4 +1,4 @@
-import { RadioStation, PodcastShow, PodcastEpisode, CountryInfo, RemoteConfig } from '../types';
+import { RadioStation, PodcastShow, PodcastEpisode, PodcastChapter, LyricsLine, SyncedLyricsResult, CountryInfo, RemoteConfig } from '../types';
 
 const API_CACHE_PREFIX = 'neotune_api_cache_';
 
@@ -530,6 +530,88 @@ export const apiService = {
     }
 
     return [];
+  },
+
+  // 4.5 Podcasting 2.0 Chapters
+  async getPodcastChapters(chaptersUrl: string): Promise<PodcastChapter[]> {
+    if (!chaptersUrl) return [];
+    try {
+      const res = await fetch(`/api/podcast/chapters?url=${encodeURIComponent(chaptersUrl)}`);
+      if (res.ok) {
+        const data = await res.json();
+        return data.chapters || [];
+      }
+    } catch (e) {
+      console.warn('Failed to fetch chapters:', e);
+    }
+    return [];
+  },
+
+  // 4.8 LRCLIB Synced Lyrics & LRC Parser
+  parseLrc(lrcText: string): LyricsLine[] {
+    if (!lrcText) return [];
+    const lines = lrcText.split(/\r?\n/);
+    const parsed: LyricsLine[] = [];
+    const timeRegex = /\[(\d{2}):(\d{2})\.(\d{2,3})\](.*)/;
+
+    for (const line of lines) {
+      const match = line.match(timeRegex);
+      if (match) {
+        const min = parseInt(match[1], 10);
+        const sec = parseInt(match[2], 10);
+        const msStr = match[3].padEnd(3, '0');
+        const ms = parseInt(msStr, 10);
+        const timeSec = min * 60 + sec + ms / 1000;
+        const text = match[4].trim();
+        if (text) {
+          parsed.push({ timeSec, text });
+        }
+      }
+    }
+
+    return parsed.sort((a, b) => a.timeSec - b.timeSec);
+  },
+
+  async getSyncedLyrics(trackName: string, artistName: string = '', durationSec?: number): Promise<SyncedLyricsResult | null> {
+    if (!trackName) return null;
+    const cacheKey = `lyrics_${trackName}_${artistName}`;
+    const cached = getCachedItem<SyncedLyricsResult>(cacheKey, 24 * 60 * 60 * 1000);
+    if (cached) return cached;
+
+    try {
+      const urlParams = new URLSearchParams();
+      urlParams.set('track_name', trackName);
+      if (artistName) urlParams.set('artist_name', artistName);
+      if (durationSec) urlParams.set('duration', String(durationSec));
+
+      const res = await fetch(`/api/lyrics/synced?${urlParams.toString()}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && (data.syncedLyrics || data.plainLyrics)) {
+          const result: SyncedLyricsResult = {
+            ...data,
+            parsedLines: data.syncedLyrics ? apiService.parseLrc(data.syncedLyrics) : []
+          };
+          setCachedItem(cacheKey, result);
+          return result;
+        }
+      }
+    } catch (e) {
+      console.warn('LRCLIB lyrics fetch error:', e);
+    }
+    return null;
+  },
+
+  // 4.9 High-Res Visualizer Backdrop
+  async getVisualizerBackdrop(query: string = '', genre: string = ''): Promise<string> {
+    try {
+      const res = await fetch(`/api/backdrop/search?query=${encodeURIComponent(query)}&genre=${encodeURIComponent(genre)}`);
+      if (res.ok) {
+        const data = await res.json();
+        return data.backdropUrl || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=1920&auto=format&fit=crop&q=85';
+      }
+    } catch {}
+    return 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=1920&auto=format&fit=crop&q=85';
   },
 
   // 5. Stream resolver

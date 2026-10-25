@@ -12,6 +12,7 @@ import { FullPlayerModal } from './components/FullPlayerModal';
 import { CarModeView } from './components/CarModeView';
 import { ScreensaverView } from './components/ScreensaverView';
 import { TVFocusManager } from './components/TVFocusManager';
+import { TVLeanbackView } from './components/TVLeanbackView';
 import { PodcastEpisodeDrawer } from './components/PodcastEpisodeDrawer';
 
 // Dialogs
@@ -1065,6 +1066,14 @@ export default function App() {
           onClose={() => setIsScreensaver(false)}
         />
       )}
+
+      {/* TV Leanback Big Screen Experience View */}
+      <TVLeanbackView
+        isOpen={isTVMode}
+        onClose={() => setIsTVMode(false)}
+        stations={availableStations}
+        onSelectStation={(st) => audioEngine.playStation(st)}
+      />
 
       {/* Dialog Modals */}
       <AuthModal
