@@ -73,6 +73,7 @@ interface SettingsViewProps {
   platform?: DevicePlatform;
   currentUser?: UserProfile | null;
   onOpenAuth?: () => void;
+  onOpenDonation?: () => void;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
@@ -93,6 +94,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   platform = 'pc',
   currentUser = null,
   onOpenAuth,
+  onOpenDonation,
 }) => {
   const { t, language, setLanguage, languages } = useTranslation();
   const [visualizerSkin, setVisualizerSkin] = useState<VisualizerSkin>(() => storageService.getVisualizerSkin());
@@ -2371,6 +2373,33 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         )}
 
+        {/* Dedicated Support Development Banner */}
+        <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-500/15 via-purple-500/15 to-rose-500/15 border border-amber-500/30 flex flex-col sm:flex-row items-center justify-between gap-3 my-2">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-amber-400 text-black flex items-center justify-center font-bold shrink-0 shadow-md shadow-amber-400/20">
+              <Coffee className="w-5 h-5 text-black" />
+            </div>
+            <div>
+              <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                <span>Support Independent Development</span>
+                <Sparkles className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
+              </div>
+              <p className="text-[11px] text-white/70">
+                100% Offline-First & Ad-Free. Help keep 50,000+ radio streams fast & reliable.
+              </p>
+            </div>
+          </div>
+          {onOpenDonation && (
+            <button
+              onClick={onOpenDonation}
+              className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-400 to-rose-400 hover:from-amber-300 hover:to-rose-300 text-black font-extrabold text-xs transition-transform active:scale-95 flex items-center gap-1.5 shrink-0 cursor-pointer shadow-md shadow-amber-500/20"
+            >
+              <Heart className="w-3.5 h-3.5 fill-current text-black" />
+              <span>Donate</span>
+            </button>
+          )}
+        </div>
+
         <div className="pt-2 border-t border-white/5 flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-2">
             <button
@@ -2386,7 +2415,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               className="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-semibold text-[var(--text-primary)] flex items-center gap-1.5 transition-colors cursor-pointer"
             >
               <Info className="w-3.5 h-3.5 text-cyan-400" />
-              <span>About</span>
+              <span>About (v1.2.0)</span>
             </button>
           </div>
         </div>

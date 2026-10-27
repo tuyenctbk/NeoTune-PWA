@@ -5,9 +5,10 @@ import { NeoTuneLogo } from '../NeoTuneLogo';
 interface AboutModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onOpenDonation?: () => void;
 }
 
-export const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
+export const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose, onOpenDonation }) => {
   if (!isOpen) return null;
 
   return (
@@ -52,24 +53,28 @@ export const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
           </div>
 
           {/* Donation attribution */}
-          <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <Coffee className="w-4 h-4 text-amber-400 shrink-0" />
-              <span className="text-[11px] text-[var(--text-primary)]">Love using NeoTune? Support creator on PayPal</span>
+          <div className="p-3 rounded-2xl bg-gradient-to-r from-amber-500/15 to-rose-500/15 border border-amber-500/30 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <Coffee className="w-5 h-5 text-amber-400 shrink-0" />
+              <div>
+                <span className="text-xs font-bold text-[var(--text-primary)] block">Support Development</span>
+                <span className="text-[10px] text-[var(--text-muted)]">100% Offline-First & Ad-Free</span>
+              </div>
             </div>
-            <a
-              href="https://paypal.me/tuyenphamvn"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-2.5 py-1 rounded-lg bg-amber-400 text-black font-bold text-[11px] hover:bg-amber-300 transition-colors flex items-center gap-1 shrink-0"
+            <button
+              onClick={() => {
+                onClose();
+                if (onOpenDonation) onOpenDonation();
+              }}
+              className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-400 to-rose-400 hover:from-amber-300 hover:to-rose-300 text-black font-extrabold text-[11px] transition-transform active:scale-95 flex items-center gap-1 shrink-0 cursor-pointer shadow-md shadow-amber-500/20"
             >
+              <Heart className="w-3.5 h-3.5 fill-current text-black" />
               <span>Donate</span>
-              <ExternalLink className="w-3 h-3" />
-            </a>
+            </button>
           </div>
 
           <div className="flex items-center justify-between pt-2 border-t border-white/5 text-[11px]">
-            <span>Version: <strong className="text-[var(--text-primary)]">3.1.0 (Universal)</strong></span>
+            <span>Version: <strong className="text-[var(--text-primary)]">1.2.0 (Build 120)</strong></span>
             <span className="flex items-center gap-1 text-[var(--accent-secondary)]">
               Crafted with <Heart className="w-3 h-3 fill-current text-rose-500" /> for music lovers
             </span>

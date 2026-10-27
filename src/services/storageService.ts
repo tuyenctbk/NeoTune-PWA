@@ -65,7 +65,12 @@ const STORAGE_KEYS = {
   UNSTABLE_STATIONS: 'neotune_unstable_stations',
   LAYOUT_PREFERENCE: 'neotune_layout_preference',
   SECTION_EXPANDED_STATES: 'neotune_section_expanded_states',
-  ACTIVE_ACCORDION_SECTION: 'neotune_active_accordion_section'
+  ACTIVE_ACCORDION_SECTION: 'neotune_active_accordion_section',
+  DONATION_IS_SUPPORTER: 'neotune_donation_is_supporter',
+  DONATION_OPS_COUNT: 'neotune_donation_ops_count',
+  DONATION_BANNER_DISMISSED_AT: 'neotune_donation_banner_dismissed_at',
+  DONATION_AUTO_PROMPT_SHOWN_AT: 'neotune_donation_auto_prompt_shown_at',
+  FIRST_INSTALL_TIMESTAMP: 'neotune_first_install_timestamp'
 };
 
 // Check if localStorage is fully accessible inside standard and sandboxed (iframe) environments
@@ -549,6 +554,7 @@ export const storageService = {
     const filtered = list.filter(s => s.id !== newStation.id && s.streamUrl !== newStation.streamUrl);
     filtered.unshift(newStation);
     safeStorage.setItem(STORAGE_KEYS.CUSTOM_STATIONS, JSON.stringify(filtered));
+    this.incrementCoreOperations();
   },
 
   deleteCustomStation(id: string): void {
@@ -2321,6 +2327,140 @@ export const storageService = {
     } catch (e) {
       console.warn('Failed to save active accordion section', e);
     }
+  },
+
+  // -------------------------------------------------------------
+  // SMART DONATION & SATISFACTION ENGINE
+  // -------------------------------------------------------------
+  _supporterListeners: new Set<(isSupporter: boolean) => void>(),
+
+  subscribeSupporter(cb: (isSupporter: boolean) => void): () => void {
+    this._supporterListeners.add(cb);
+    cb(this.getIsSupporter());
+    return () => {
+      this._supporterListeners.delete(cb);
+    };
+  },
+
+  notifySupporter(): void {
+    const supporter = this.getIsSupporter();
+    this._supporterListeners.forEach(cb => {
+      try { cb(supporter); } catch {}
+    });
+  },
+
+  getIsSupporter(): boolean {
+    try {
+      return safeStorage.getItem(STORAGE_KEYS.DONATION_IS_SUPPORTER) === 'true';
+    } catch {
+      return false;
+    }
+  },
+
+  setIsSupporter(isSupporter: boolean): void {
+    try {
+      safeStorage.setItem(STORAGE_KEYS.DONATION_IS_SUPPORTER, String(isSupporter));
+      this.notifySupporter();
+    } catch {}
+  },
+
+  getFirstInstallTimestamp(): number {
+    try {
+      const val = safeStorage.getItem(STORAGE_KEYS.FIRST_INSTALL_TIMESTAMP);
+      if (val) return parseInt(val, 10);
+      const now = Date.now();
+      safeStorage.setItem(STORAGE_KEYS.FIRST_INSTALL_TIMESTAMP, String(now));
+      return now;
+    } catch {
+      return Date.now();
+    }
+  },
+
+  getDaysSinceInstall(): number {
+    const installTime = this.getFirstInstallTimestamp();
+    const diffMs = Date.now() - installTime;
+    return Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+  },
+
+  getCoreOperationsCount(): number {
+    try {
+      const val = safeStorage.getItem(STORAGE_KEYS.DONATION_OPS_COUNT);
+      return val ? parseInt(val, 10) : 0;
+    } catch {
+      return 0;
+    }
+  },
+
+  incrementCoreOperations(): { newCount: number; milestoneHit: 10 | 25 | 50 | null } {
+    const current = this.getCoreOperationsCount();
+    const newCount = current + 1;
+    try {
+      safeStorage.setItem(STORAGE_KEYS.DONATION_OPS_COUNT, String(newCount));
+    } catch {}
+
+    let milestoneHit: 10 | 25 | 50 | null = null;
+    if (newCount === 10 || newCount === 25 || newCount === 50) {
+      milestoneHit = newCount as 10 | 25 | 50;
+    }
+
+    return { newCount, milestoneHit };
+  },
+
+  getBannerDismissedTimestamp(): number | null {
+    try {
+      const val = safeStorage.getItem(STORAGE_KEYS.DONATION_BANNER_DISMISSED_AT);
+      return val ? parseInt(val, 10) : null;
+    } catch {
+      return null;
+    }
+  },
+
+  dismissDonationBanner(): void {
+    try {
+      safeStorage.setItem(STORAGE_KEYS.DONATION_BANNER_DISMISSED_AT, String(Date.now()));
+    } catch {}
+  },
+
+  getAutoPromptLastShownTimestamp(): number | null {
+    try {
+      const val = safeStorage.getItem(STORAGE_KEYS.DONATION_AUTO_PROMPT_SHOWN_AT);
+      return val ? parseInt(val, 10) : null;
+    } catch {
+      return null;
+    }
+  },
+
+  recordAutoPromptShown(): void {
+    try {
+      safeStorage.setItem(STORAGE_KEYS.DONATION_AUTO_PROMPT_SHOWN_AT, String(Date.now()));
+    } catch {}
+  },
+
+  shouldShowHomeDonationBanner(): boolean {
+    if (this.getIsSupporter()) return false;
+    if (this.getCoreOperationsCount() < 3) return false;
+    if (this.getUserStats().sessionCount < 3) return false;
+    if (this.getDaysSinceInstall() < 2) return false;
+
+    const dismissedAt = this.getBannerDismissedTimestamp();
+    if (dismissedAt) {
+      const FourteenDaysMs = 14 * 24 * 60 * 60 * 1000;
+      if (Date.now() - dismissedAt < FourteenDaysMs) return false;
+    }
+    return true;
+  },
+
+  shouldTriggerAutoPromptModal(): boolean {
+    if (this.getIsSupporter()) return false;
+    if (this.getCoreOperationsCount() < 7) return false;
+    if (this.getDaysSinceInstall() < 2) return false;
+
+    const lastShownAt = this.getAutoPromptLastShownTimestamp();
+    if (lastShownAt) {
+      const ThirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+      if (Date.now() - lastShownAt < ThirtyDaysMs) return false;
+    }
+    return true;
   }
 };
 

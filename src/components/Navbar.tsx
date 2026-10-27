@@ -3,8 +3,9 @@ import {
   Radio, Mic, Heart, Settings, Plus, Sliders, Moon, Car, Tv, Palette, Shield, 
   Sparkles, Disc3, Download, Smartphone, Monitor, User, Cloud, CloudOff, 
   RefreshCw, CheckCircle2, Search, AlertTriangle, ChevronLeft, ChevronRight, Menu,
-  Globe, Check, X
+  Globe, Check, X, Coffee
 } from 'lucide-react';
+import { storageService } from '../services/storageService';
 import { AppView, ThemeType, UserProfile, SyncStatusInfo } from '../types';
 import { DevicePlatform } from '../hooks/usePWAInstall';
 import { firebaseService } from '../services/firebaseService';
@@ -31,6 +32,7 @@ interface NavbarProps {
   currentUser?: UserProfile | null;
   onOpenAuth?: () => void;
   onOpenSearch: () => void;
+  onOpenDonation?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -51,6 +53,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   currentUser = null,
   onOpenAuth,
   onOpenSearch,
+  onOpenDonation,
 }) => {
   const [showThemeMenu, setShowThemeMenu] = useState(false);
   const [showLangMenu, setShowLangMenu] = useState(false);
@@ -58,6 +61,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [langFilter, setLangFilter] = useState('');
   const [syncStatus, setSyncStatus] = useState<SyncStatusInfo>(firebaseService.getSyncStatus());
   const [showSyncTooltip, setShowSyncTooltip] = useState(false);
+  const [isSupporter, setIsSupporter] = useState<boolean>(() => storageService.getIsSupporter());
   
   const { t, language, setLanguage, languages, languageMeta } = useTranslation();
 
@@ -70,10 +74,12 @@ export const Navbar: React.FC<NavbarProps> = ({
   });
 
   useEffect(() => {
-    const unsub = firebaseService.subscribeSyncStatus((st) => {
-      setSyncStatus(st);
-    });
-    return unsub;
+    const unsubSync = firebaseService.subscribeSyncStatus((st) => setSyncStatus(st));
+    const unsubSupporter = storageService.subscribeSupporter((sup) => setIsSupporter(sup));
+    return () => {
+      unsubSync();
+      unsubSupporter();
+    };
   }, []);
 
   const handleManualSync = async (e: React.MouseEvent) => {
@@ -603,6 +609,29 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               <Search className="w-4 h-4" />
             </button>
+
+            {/* Support / Supporter Badge Button */}
+            {onOpenDonation && (
+              isSupporter ? (
+                <button
+                  onClick={() => { triggerHaptic('light'); onOpenDonation(); }}
+                  className="px-2.5 py-1.5 rounded-xl bg-gradient-to-r from-amber-500/20 to-rose-500/20 border border-amber-400/40 text-amber-300 hover:bg-amber-500/30 transition-all flex items-center gap-1.5 text-xs font-bold shadow-sm cursor-pointer"
+                  title="Active Supporter - Thank you for supporting NeoTune!"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
+                  <span className="hidden sm:inline">Supporter</span>
+                </button>
+              ) : (
+                <button
+                  onClick={() => { triggerHaptic('light'); onOpenDonation(); }}
+                  className="px-2.5 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 hover:bg-amber-500/20 transition-all cursor-pointer flex items-center gap-1.5 text-xs font-bold"
+                  title="Support NeoTune Development"
+                >
+                  <Coffee className="w-4 h-4 text-amber-400 animate-pulse" />
+                  <span className="hidden sm:inline">Support</span>
+                </button>
+              )
+            )}
 
             {/* Quick Language */}
             <div className="relative">

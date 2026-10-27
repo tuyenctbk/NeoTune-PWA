@@ -1,11 +1,12 @@
 {
   "projectId": "sentry-hub",
-  "appId": "1:770166560462:web:260911451b591a00a9229f",
+  "appId": "1:770166560462:web:d25c2a6c57a1cc89a9229f",
   "apiKey": "AIzaSyB6PynYEm0VVQEkcxcgtcgUcH1Z9Dzp_KA",
   "authDomain": "sentry-hub.firebaseapp.com",
-  "firestoreDatabaseId": "",
+  "firestoreDatabaseId": "ai-studio-neotunecrossplat-ea5eda2e-1a7d-4846-9502-677bb08345d0",
   "storageBucket": "sentry-hub.firebasestorage.app",
   "messagingSenderId": "770166560462",
-  "measurementId": "G-Z9850X9XBN",
+  "measurementId": "",
+  "oAuthClientId": "770166560462-688v7ffh5ik0la2maddmprp5h910tpeh.apps.googleusercontent.com",
   "recaptchaSiteKey": ""
 }

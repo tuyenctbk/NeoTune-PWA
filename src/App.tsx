@@ -31,6 +31,9 @@ import { KeyboardShortcutsModal } from './components/dialogs/KeyboardShortcutsMo
 import { DiagnosticsModal } from './components/dialogs/DiagnosticsModal';
 import { AuthModal } from './components/dialogs/AuthModal';
 import { GlobalQuickSearchModal } from './components/dialogs/GlobalQuickSearchModal';
+import { DonationModal } from './components/dialogs/DonationModal';
+import { MilestoneToast } from './components/MilestoneToast';
+import { DonationBanner } from './components/DonationBanner';
 
 // Views
 import { RadioView } from './views/RadioView';
@@ -124,6 +127,8 @@ export default function App() {
   const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState(false);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
   const [isGlobalQuickSearchOpen, setIsGlobalQuickSearchOpen] = useState(false);
+  const [isDonationOpen, setIsDonationOpen] = useState(false);
+  const [milestone, setMilestone] = useState<10 | 25 | 50 | null>(null);
 
   // Global PC & PWA Keyboard Shortcuts listener
   const { toastMessage } = useKeyboardShortcuts({
@@ -929,6 +934,9 @@ export default function App() {
           />
         )}
 
+        {/* Home Screen Smart Donation Banner */}
+        <DonationBanner onOpenDonationModal={() => setIsDonationOpen(true)} />
+
         {currentView === 'radio' && (
           <RadioView
             onOpenCountryPicker={() => setIsCountryPickerOpen(true)}
@@ -1149,6 +1157,18 @@ export default function App() {
       <AboutModal
         isOpen={isAboutOpen}
         onClose={() => setIsAboutOpen(false)}
+        onOpenDonation={() => setIsDonationOpen(true)}
+      />
+
+      <DonationModal
+        isOpen={isDonationOpen}
+        onClose={() => setIsDonationOpen(false)}
+      />
+
+      <MilestoneToast
+        milestone={milestone}
+        onClose={() => setMilestone(null)}
+        onOpenDonationModal={() => setIsDonationOpen(true)}
       />
 
       <PWAInstallModal
